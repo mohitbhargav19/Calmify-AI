@@ -1,0 +1,230 @@
+{% load static %}
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calmify AI</title>
+
+    <link rel="stylesheet" href="{% static 'css/style.css' %}">
+    <link rel="stylesheet"
+     href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+</head>
+<body>
+
+    <!-- HEADER -->
+    <div class="logo-container">
+
+    <img src="{% static 'images/logo.png' %}" alt="Calmify AI Logo">
+
+    <div class="logo-text">
+        Calmify AI
+    </div>
+
+</div>
+
+        <nav>
+            <ul>
+                <li><a href="/">Home</a></li>
+                <li><a href="#about">About</a></li>
+                 <li><a href="#reports">Previous Reports</a></li>
+                <li><a href="#tracker">Start Tracking</a></li>
+            </ul>
+        </nav>
+
+        <div class="auth-buttons">
+
+    {% if user.is_authenticated %}
+
+     <div class="profile-dropdown">
+
+          <button class="profile-btn">
+
+         👤 {{ user.username }}
+
+          </button>
+
+     <div class="dropdown-content">
+
+         <a href="{% url 'dashboard' %}">
+            Dashboard
+         </a>
+
+         <a href="{% url 'logout' %}">
+            Logout
+         </a>
+
+    </div>
+</div>
+
+{% else %}
+
+<a href="{% url 'login' %}">
+    <button class="login-btn">
+        Login
+    </button>
+</a>
+
+<a href="{% url 'signup' %}">
+    <button class="signup-btn">
+        Sign Up
+    </button>
+</a>
+
+{% endif %}
+
+</div>
+
+    </header>
+
+
+    <!-- HERO SECTION -->
+    <section class="hero">
+        <div class="overlay">
+
+            <h1>Welcome to Calmify AI</h1>
+
+            <p>
+                Your intelligent mental wellness companion for mood tracking,
+                emotional support, and personalized insights.
+            </p>
+
+            <a href="#tracker">
+                <button class="start-btn">
+                    Start Your Wellness Journey
+                </button>
+            </a>
+
+        </div>
+    </section>
+
+
+    <!-- ABOUT SECTION -->
+    <section id="about" class="section-card">
+        <h2>About Calmify AI</h2>
+
+        <p>
+            Calmify AI is an AI-powered mental health and wellness platform
+            designed for students and individuals who want to monitor their
+            emotional wellbeing.
+        </p>
+
+        <p>
+                        The system helps users:
+        </p>
+
+        <ul>
+            <li>Track daily moods</li>
+            <li>Analyze emotional patterns</li>
+            <li>Receive personalized suggestions</li>
+            <li>Maintain mental wellness records</li>
+        </ul>
+    </section>
+
+
+    <!-- PREVIOUS REPORTS SECTION -->
+    <section id="reports" class="section-card">
+        <h2>Previous Reports</h2>
+
+        <table>
+            <tr>
+                <th>Date</th>
+                <th>Mood Score</th>
+                <th>Emotion</th>
+            </tr>
+
+            <tr>
+                <td>01 May 2026</td>
+                <td>8</td>
+                <td>Happy</td>
+            </tr>
+
+            <tr>
+                 <td>02 May 2026</td>
+                <td>5</td>
+                <td>Stressed</td>
+            </tr>
+        </table>
+    </section>
+
+
+    <!-- START TRACKING SECTION -->
+    <section id="tracker" class="section-card">
+
+        <h2>Start Tracking Your Mood</h2>
+
+        <form id="moodForm">
+
+            <label>Mood Score</label>
+            <input type="number" id="mood_score" min="1" max="10">
+
+            <label>Emotion</label>
+            <select id="emotion">
+                <option value="happy">Happy</option>
+                <option value="sad">Sad</option>
+                <option value="anxious">Anxious</option>
+                <option value="stressed">Stressed</option>
+                <option value="neutral">Neutral</option>
+            </select>
+
+            <label>Journal Entry</label>
+            <textarea id="journal_text"></textarea>
+
+            <label>Sleep Hours</label>
+            <input type="number" id="sleep_hours" step="0.1">
+
+            <button type="submit">Submit Mood</button>
+
+        </form>
+    </section>
+
+
+    <footer>
+
+    <p>
+        © 2026 Calmify AI
+    </p>
+
+    <p>
+        Created by: Mohit Bhargav
+    </p>
+
+    <p>
+        Email:
+        mohitbhargav19072004@gmail.com
+    </p>
+
+    <p>
+        Contact:
+        +91 87507 98241
+    </p>
+
+    <div class="social-icons">
+
+        <a href="#">
+            <i class="fab fa-linkedin"></i>
+        </a>
+
+        <a href="#">
+            <i class="fab fa-github"></i>
+        </a>
+
+        <a href="#">
+            <i class="fab fa-instagram"></i>
+        </a>
+
+        <a href="#">
+            <i class="fab fa-twitter"></i>
+        </a>
+
+    </div>
+
+</footer>
+
+
+    <script src="{% static 'js/app.js' %}"></script>
+
+</body>
+</html>
