@@ -6,3 +6,9 @@ db.sqlite3
 .ipynb_checkpoints/
 
 Calmify_AI/datasets/student_mental_health_burnout_1M.csv
+recommendation_outputs/
+preprocessed/
+models/
+
+*.pkl
+*.joblib

@@ -1,445 +1,588 @@
-from rest_framework.decorators import api_view
-from rest_framework.response import Response
-from rest_framework import status
-
-from .models import MoodEntry
-from .serializers import MoodEntrySerializer
-from django.contrib.auth.models import User
+import logging
+import json
+from mental_health.utils import make_json_safe
+from django.shortcuts import render, redirect
 from django.contrib.auth import authenticate, login, logout
-from django.shortcuts import redirect
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth.models import User
 
-from django.http import HttpResponse
-from .pdf_utils import generate_report
+from .pdf_utils import generate_dashboard_pdf
+
 from django.contrib.auth.decorators import login_required
 
-import json
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.exceptions import ValidationError
 
-from .models import MoodEntry
+from .question_bank import QUESTION_BANK
+from .profile_questions import PROFILE_QUESTIONS
+from .serializers import AssessmentSubmitSerializer
+from .ml_engine import run_all_models
 
-from django.contrib.auth import logout
-from django.shortcuts import redirect
-
-def logout_user(request):
-
-    logout(request)
-
-    return redirect('/')
-
-
-from .ai_model import (
-    detect_emotion,
-    calculate_wellness
-)
-
-@api_view(['GET', 'POST'])
-def mood_list(request):
-
-    # GET all mood entries
-    if request.method == 'GET':
-        moods = MoodEntry.objects.all()
-        serializer = MoodEntrySerializer(moods, many=True)
-        return Response(serializer.data)
-
-    # POST new mood entry
-    elif request.method == 'POST':
-        serializer = MoodEntrySerializer(data=request.data)
-
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-from django.shortcuts import render
+logger = logging.getLogger(__name__)
 
 
-def home(request):
-    return render(request, 'index.html')
+# ============================================================
+# BASIC PAGE VIEWS
+# ============================================================
+
+from django.contrib.auth.decorators import login_required
+
+def home_view(request):
+    return render(request, "index.html")
 
 
-def login_page(request):
+@login_required(login_url="login")
+def assessment_page(request):
+    return render(request, "assessment.html")
 
-    if request.method == 'POST':
+@login_required
+def download_report(request):
 
-        username = request.POST.get('username')
+    dashboard_data = request.session.get("latest_dashboard_data")
 
-        password = request.POST.get('password')
+    if dashboard_data is None:
+        return HttpResponse("No assessment found.")
+
+    return generate_dashboard_pdf(
+        dashboard_data=dashboard_data,
+        user=request.user
+    )
+
+
+# ============================================================
+# AUTHENTICATION
+# ============================================================
+
+def signup_view(request):
+
+    if request.user.is_authenticated:
+        return redirect("home")
+
+    if request.method == "POST":
+
+        username = request.POST.get("username", "").strip()
+        email = request.POST.get("email", "").strip().lower()
+        password = request.POST.get("password", "")
+        confirm_password = request.POST.get("confirm_password", "")
+
+        if not username:
+            return render(
+                request,
+                "signup.html",
+                {"error": "Username is required."}
+            )
+
+        if not email:
+            return render(
+                request,
+                "signup.html",
+                {"error": "Email is required."}
+            )
+
+        if password != confirm_password:
+            return render(
+                request,
+                "signup.html",
+                {"error": "Passwords do not match."}
+            )
+
+        if User.objects.filter(username=username).exists():
+            return render(
+                request,
+                "signup.html",
+                {"error": "Username already exists."}
+            )
+
+        if User.objects.filter(email=email).exists():
+            return render(
+                request,
+                "signup.html",
+                {"error": "Email already registered."}
+            )
+
+        User.objects.create_user(
+            username=username,
+            email=email,
+            password=password
+        )
+
+        return redirect("login")
+
+    return render(request, "signup.html")
+
+
+def login_view(request):
+
+    if request.user.is_authenticated:
+        return redirect("home")
+
+    if request.method == "POST":
+
+        username = request.POST.get("username", "").strip()
+        password = request.POST.get("password", "")
 
         user = authenticate(
-            request,
+            request=request,
             username=username,
             password=password
         )
 
         if user is not None:
-
             login(request, user)
+            return redirect("home")
 
-            return redirect('/dashboard/')
-
-        else:
-
-            return render(request, 'login.html', {
-                'error': 'Invalid username or password'
-            })
-
-    return render(request, 'login.html')
-
-#*******************signup_page
-
-def signup_page(request):
-
-    if request.method == 'POST':
-
-        username = request.POST.get('username')
-
-        email = request.POST.get('email')
-
-        password = request.POST.get('password')
-
-        confirm_password = request.POST.get('confirm_password')
-
-        if password == confirm_password:
-
-            if User.objects.filter(username=username).exists():
-
-                return render(request, 'signup.html', {
-                    'error': 'Username already exists'
-                })
-
-            user = User.objects.create_user(
-                username=username,
-                email=email,
-                password=password
-            )
-
-            user.save()
-
-            return redirect('/login/')
-
-        else:
-
-            return render(request, 'signup.html', {
-                'error': 'Passwords do not match'
-            })
-
-    return render(request, 'signup.html')
-
-
-
-#*******************dashboard_page
-
-@login_required
-def dashboard(request):
-
-    import json
-
-    # -------------------------------
-    # USER MOOD DATA
-    # -------------------------------
-
-    moods = MoodEntry.objects.filter(
-        user=request.user
-    ).order_by('created_at')
-
-    latest_mood = moods.last()
-
-    suggestions = []
-    music = []
-
-    # -------------------------------
-    # WELLNESS SCORE
-    # -------------------------------
-
-    wellness_score = 0
-
-    if latest_mood:
-
-        wellness_score = calculate_wellness(
-
-            latest_mood.mood_score,
-
-            latest_mood.sleep_hours,
-
-            latest_mood.emotion
+        return render(
+            request,
+            "login.html",
+            {
+                "error": "Invalid username or password."
+            }
         )
 
-    # -------------------------------
-    # AI SUGGESTIONS
-    # -------------------------------
+    return render(request, "login.html")
 
-    if latest_mood:
 
-        if latest_mood.mood_score <= 3:
+@login_required(login_url="login")
+def logout_view(request):
 
-            suggestions.append(
-                "Take proper rest and avoid overthinking."
-            )
+    logout(request)
 
-            suggestions.append(
-                "Try deep breathing or meditation."
-            )
+    return redirect("home")
 
-        elif latest_mood.mood_score <= 6:
 
-            suggestions.append(
-                "Spend time doing activities you enjoy."
-            )
+# ============================================================
+# COMMON HELPERS
+# ============================================================
 
-            suggestions.append(
-                "Maintain a balanced routine today."
-            )
+def risk_class(value):
+    """
+    Returns CSS class based on severity label.
+    """
 
-        else:
+    if value is None:
+        return "neutral"
 
-            suggestions.append(
-                "Keep maintaining your positive energy."
-            )
+    value = str(value).strip().lower()
 
-            suggestions.append(
-                "Share positivity with others today."
-            )
+    high_keywords = {
+        "high",
+        "severe",
+        "critical",
+        "poor",
+        "distress",
+        "at risk"
+    }
 
-        if latest_mood.sleep_hours < 5:
+    moderate_keywords = {
+        "moderate",
+        "medium",
+        "borderline"
+    }
 
-            suggestions.append(
-                "Your sleep schedule needs improvement."
-            )
+    low_keywords = {
+        "low",
+        "good",
+        "healthy",
+        "normal",
+        "stable",
+        "improve"
+    }
 
-        if latest_mood.emotion == "stressed":
+    if any(word in value for word in high_keywords):
+        return "high"
 
-            suggestions.append(
-                "Take short mindfulness breaks during work."
-            )
+    if any(word in value for word in moderate_keywords):
+        return "moderate"
 
-        elif latest_mood.emotion == "sad":
+    if any(word in value for word in low_keywords):
+        return "low"
 
-            suggestions.append(
-                "Talk to supportive friends or family."
-            )
+    return "neutral"
 
-        elif latest_mood.emotion == "anxious":
 
-            suggestions.append(
-                "Practice mindfulness and relaxation."
-            )
+# ============================================================
+# DASHBOARD
+# ============================================================
 
-    # -------------------------------
-    # MUSIC RECOMMENDATIONS
-    # -------------------------------
+@login_required(login_url="login")
+def dashboard_view(request):
+    """
+    Displays the latest assessment dashboard stored in session.
+    """
 
-    if latest_mood:
+    dashboard_data = request.session.get("latest_dashboard_data")
 
-        if latest_mood.emotion == "sad":
-
-            music.append(
-                "Acoustic Healing Playlist 🎸"
-            )
-
-            music.append(
-                "Positive Energy Songs ✨"
-            )
-
-        elif latest_mood.emotion == "stressed":
-
-            music.append(
-                "Deep Focus Lo-fi Beats 🎧"
-            )
-
-            music.append(
-                "Relaxing Piano Music 🎹"
-            )
-
-        elif latest_mood.emotion == "anxious":
-
-            music.append(
-                "Meditation Soundscapes 🌙"
-            )
-
-            music.append(
-                "Nature Calm Sounds 🌿"
-            )
-
-        elif latest_mood.emotion == "happy":
-
-            music.append(
-                "Feel Good Hits ☀️"
-            )
-
-            music.append(
-                "Morning Motivation Playlist 🚀"
-            )
-
-        else:
-
-            music.append(
-                "Balanced Mood Instrumentals 🎼"
-            )
-
-    # -------------------------------
-    # GRAPH DATA
-    # -------------------------------
-
-    mood_scores = []
-    sleep_data = []
-    dates = []
-
-    for mood in moods:
-
-        mood_scores.append(
-            mood.mood_score
+    if not dashboard_data:
+        return render(
+            request,
+            "dashboard.html",
+            {
+                "error": (
+                    "No assessment data found. "
+                    "Please complete the assessment first."
+                )
+            },
         )
 
-        sleep_data.append(
-            float(mood.sleep_hours)
-        )
+    # -------------------------------------------------------
+    # Safe extraction
+    # -------------------------------------------------------
 
-        dates.append(
-            mood.created_at.strftime("%d %b")
-        )
+    dashboard = dashboard_data.get("dashboard") or {}
+    predictions = dashboard_data.get("predictions") or {}
+    recommendations = dashboard_data.get("recommendations") or {}
+    combined_summary = dashboard_data.get("combined_summary") or {}
 
-    # -------------------------------
-    # MOOD HISTORY
-    # -------------------------------
+    user = dashboard.get("user") or {}
+    summary_card = dashboard.get("summary_card") or {}
+    dashboard_cards = dashboard.get("dashboard_cards") or {}
+    music_support = dashboard.get("music_support") or {}
+    recommendation_cards = dashboard.get("recommendation_cards") or {}
 
-    user_history = MoodEntry.objects.filter(
-        user=request.user
-    ).order_by('-created_at')
+    # -------------------------------------------------------
+    # Summary values
+    # -------------------------------------------------------
 
-    # -------------------------------
-    # WEEKLY SUMMARY
-    # -------------------------------
+    overall_risk_level = (
+        summary_card.get("overall_risk_level")
+        or combined_summary.get("overall_risk_level")
+        or "Unknown"
+    )
 
-    total_score = 0
+    mental_health_status = (
+        summary_card.get("mental_health_status")
+        or combined_summary.get("mental_health_status_label")
+        or combined_summary.get("mental_health_status")
+        or "Unknown"
+    )
 
-    count = user_history.count()
+    stress_type = (
+        summary_card.get("stress_type")
+        or combined_summary.get("stress_type_label")
+        or combined_summary.get("stress_type_prediction")
+        or "Unknown"
+    )
 
-    for mood in user_history:
+    burnout_level = (
+        summary_card.get("burnout_level")
+        or dashboard_cards.get("burnout_level")
+        or "Unknown"
+    )
 
-        total_score += mood.mood_score
+    wellness_level = (
+        summary_card.get("wellness_level")
+        or dashboard_cards.get("wellness_level")
+        or "Unknown"
+    )
 
-    weekly_average = 0
-
-    if count > 0:
-
-        weekly_average = round(
-            total_score / count,
-            2
-        )
-
-    # -------------------------------
-    # CONTEXT
-    # -------------------------------
+    # -------------------------------------------------------
+    # Context
+    # -------------------------------------------------------
 
     context = {
 
-        'latest_mood': latest_mood,
+        # complete payloads
+        "dashboard": dashboard,
+        "predictions": predictions,
+        "recommendations": recommendations,
+        "combined_summary": combined_summary,
 
-        'suggestions': suggestions,
+        # ---------------- User ----------------
 
-        'music': music,
+        "dashboard_user": user,
+        "user_name": user.get("name", request.user.username),
+        "user_age": user.get("age"),
+        "user_gender": user.get("gender"),
+        "user_occupation": user.get("occupation"),
 
-        'wellness_score': wellness_score,
+        # ---------------- Summary ----------------
 
-        'mood_scores': json.dumps(
-            mood_scores
+        "overall_risk_level": overall_risk_level,
+        "mental_health_status": mental_health_status,
+        "stress_type": stress_type,
+        "burnout_level": burnout_level,
+        "wellness_level": wellness_level,
+
+        # ---------------- Dashboard Cards ----------------
+
+        "burnout_score": dashboard_cards.get("burnout_score"),
+        "wellness_score": dashboard_cards.get("wellness_score"),
+        "stress_risk_score": dashboard_cards.get("stress_risk_score"),
+
+        "student_stress_level": dashboard_cards.get(
+            "student_stress_level"
         ),
 
-        'sleep_data': json.dumps(
-            sleep_data
+        "student_stress_level_label": dashboard_cards.get(
+            "student_stress_level_label"
         ),
 
-        'dates': json.dumps(
-            dates
+        "student_risk_band": dashboard_cards.get(
+            "student_risk_band"
         ),
 
-        'user_history': user_history,
+        # ---------------- Music ----------------
 
-        'weekly_average': weekly_average,
+        "music_effect_label": music_support.get(
+            "music_effect_label"
+        ),
 
-        'recent_journals': user_history[:5],
+        "music_effect_prediction": music_support.get(
+            "music_effect_prediction"
+        ),
+
+        "recommended_genres": music_support.get(
+            "recommended_genres",
+            [],
+        ),
+
+        "music_reasoning": music_support.get(
+            "music_reasoning",
+            [],
+        ),
+
+        # ---------------- Recommendations ----------------
+
+        "top_recommendations": recommendation_cards.get(
+            "top_recommendations",
+            [],
+        ),
+
+        "alerts": recommendation_cards.get(
+            "alerts",
+            [],
+        ),
+
+        "self_care_plan": recommendation_cards.get(
+            "self_care_plan",
+            [],
+        ),
+
+        "coping_tips": recommendation_cards.get(
+            "coping_tips",
+            [],
+        ),
+
+        "follow_up_actions": recommendation_cards.get(
+            "follow_up_actions",
+            [],
+        ),
+
+        "music_recommendations": recommendation_cards.get(
+            "music_recommendations",
+            [],
+        ),
+
+        "positive_signals": (
+            recommendation_cards.get("positive_signals")
+            or recommendations.get("positive_signals", [])
+        ),
+
+        "red_flags": (
+            recommendation_cards.get("red_flags")
+            or recommendations.get("red_flags", [])
+        ),
+
+        # ---------------- CSS Classes ----------------
+
+        "overall_risk_class": risk_class(overall_risk_level),
+        "mental_status_class": risk_class(mental_health_status),
+        "stress_type_class": risk_class(stress_type),
+        "burnout_class": risk_class(burnout_level),
+        "wellness_class": risk_class(wellness_level),
     }
 
     return render(
         request,
-        'dashboard.html',
-        context
+        "dashboard.html",
+        context,
     )
+    
+# ============================================================
+# API : ASSESSMENT QUESTIONS
+# ============================================================
 
-#*******************
-#  download_page
-#*******************
+class AssessmentQuestionsView(APIView):
+    """
+    Returns all profile questions and assessment sections.
+    """
 
-@login_required
-def download_report(request):
+    authentication_classes = []
+    permission_classes = []
 
-    moods = MoodEntry.objects.filter(
-        user=request.user
-    ).order_by('created_at')
+    def get(self, request):
 
-    latest_mood = moods.last()
+        try:
 
-    wellness_score = 0
+            return Response(
+                {
+                    "success": True,
+                    "message": "Assessment questions fetched successfully.",
+                    "data": {
+                        "profile_questions": PROFILE_QUESTIONS,
+                        "assessment_sections": QUESTION_BANK,
+                    },
+                },
+                status=status.HTTP_200_OK,
+            )
 
-    if latest_mood:
+        except Exception as e:
 
-        wellness_score = calculate_wellness(
-            latest_mood.mood_score,
-            latest_mood.sleep_hours,
-            latest_mood.emotion
-        )
+            logger.exception("Failed to load assessment questions.")
 
-    total_score = 0
+            return Response(
+                {
+                    "success": False,
+                    "message": "Unable to fetch assessment questions.",
+                    "error": str(e),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
-    for mood in moods:
 
-        total_score += mood.mood_score
+# ============================================================
+# API : SUBMIT ASSESSMENT
+# ============================================================
 
-    weekly_average = 0
+class AssessmentSubmitView(APIView):
+    """
+    Validates payload,
+    runs complete Calmify ML pipeline,
+    stores dashboard into session,
+    returns prediction response.
+    """
 
-    if moods.count() > 0:
+    def post(self, request):
 
-        weekly_average = round(
-            total_score / moods.count(),
-            2
-        )
+        try:
 
-    suggestions = [
+            serializer = AssessmentSubmitSerializer(
+                data=request.data
+            )
 
-        "Maintain healthy sleep habits.",
+            serializer.is_valid(raise_exception=True)
 
-        "Track your emotions daily.",
+            validated_data = serializer.validated_data
 
-        "Listen to recommended music."
-    ]
+            profile_answers = validated_data.get("profile") or {}
+            assessment_answers = validated_data.get("answers") or {}
 
-    response = HttpResponse(
-        content_type='application/pdf'
-    )
+            logger.info(
+                "Running Calmify AI prediction pipeline..."
+            )
 
-    response[
-        'Content-Disposition'
-    ] = (
-        'attachment; '
-        'filename="Calmify_Report.pdf"'
-    )
+            result = run_all_models(
+                profile_answers=profile_answers,
+                assessment_answers=assessment_answers,
+            )
 
-    generate_report(
-        response,
-        request.user,
-        latest_mood,
-        wellness_score,
-        weekly_average,
-        suggestions
-    )
+            # ----------------------------------------
+            # Convert everything into JSON-safe objects
+            # ----------------------------------------
 
-    return response
+            result = make_json_safe(result)
 
-from django.contrib.auth import logout
-from django.shortcuts import redirect
+            # ----------------------------------------
+            # Debug JSON Serialization
+            # ----------------------------------------
 
-def logout_user(request):
+            try:
+                json.dumps(result)
+                print("JSON SAFE SUCCESS")
 
-    logout(request)
+            except Exception as e:
 
-    return redirect('/')
+                print("JSON FAILED")
+                print(type(e))
+                print(e)
+
+                import pprint
+                pprint.pprint(result)
+
+                raise
+
+            # ----------------------------------------
+
+            if not result.get("success"):
+
+                logger.error(
+                    "Prediction pipeline failed."
+                )
+
+                return Response(
+                    {
+                        "success": False,
+                        "message": result.get(
+                            "message",
+                            "Assessment processing failed."
+                        ),
+                        "error": result.get("error"),
+                    },
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+            # ----------------------------------------
+            # Save dashboard in session
+            # ----------------------------------------
+
+            request.session["latest_dashboard_data"] = result
+            request.session.modified = True
+
+            logger.info(
+                "Assessment completed successfully."
+            )
+
+            return Response(
+                {
+                    "success": True,
+                    "message": "Assessment completed successfully.",
+                    "data": result,
+                    "redirect_url": "/dashboard/",
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        except ValidationError as exc:
+
+            logger.warning(
+                "Assessment validation failed.",
+                extra={
+                    "errors": exc.detail
+                }
+            )
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Validation failed.",
+                    "errors": exc.detail,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        except Exception as exc:
+
+            print("OUTER EXCEPTION")
+            print(type(exc))
+            print(exc)
+
+            logger.exception(
+                "Unexpected error during assessment."
+            )
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "Failed to process assessment.",
+                    "error": str(exc),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+            
+            
+
+
+
+    

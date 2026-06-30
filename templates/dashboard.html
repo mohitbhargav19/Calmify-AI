@@ -2,468 +2,495 @@
 
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard | Calmify AI</title>
 
-<meta charset="UTF-8">
-
-<meta name="viewport"
-      content="width=device-width, initial-scale=1.0">
-
-<title>Dashboard | Calmify AI</title>
-
-<link rel="stylesheet"
-href="{% static 'css/style.css' %}">
-
-<link rel="stylesheet"
-href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
+    <link rel="stylesheet" href="{% static 'css/style.css' %}">
+    <link rel="stylesheet"
+          href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 </head>
-
 <body>
-
-<!-- Header Here -->
 
 <header>
 
-<div class="logo-container">
-
-<img src="{% static 'images/logo.png' %}">
-
-<div class="logo-text">
-
-Calmify AI
-
-</div>
-
-</div>
-
-<nav>
-
-<ul>
-
-<li><a href="/">Home</a></li>
-
-<li><a href="/dashboard/">Dashboard</a></li>
-
-<li><a href="#analytics">Analytics</a></li>
-
-<li><a href="#suggestions">Suggestions</a></li>
-
-</ul>
-
-</nav>
-
-<div class="profile-dropdown">
-
-    <button
-        class="profile-btn"
-        onclick="toggleMenu()">
-
-        <i class="fa-solid fa-user"></i>
-
-        {{ request.user.username }}
-
-    </button>
-
-    <div
-        id="profileMenu"
-        class="dropdown-content">
-
-        <a href="/dashboard/">
-            Dashboard
-        </a>
-
-        <a href="/logout/">
-            Logout
-        </a>
-
+    <div class="logo-container">
+        <img src="{% static 'images/logo.png' %}" alt="Logo">
+        <div class="logo-text">Calmify AI</div>
     </div>
 
-</div>
-</div>
+    <nav>
+        <ul>
+            <li><a href="/">Home</a></li>
+            <li><a href="{% url 'assessment_page' %}">Assessment</a></li>
+            <li><a href="#recommendations">Recommendations</a></li>
+            <li><a href="#musicSupport">Music Support</a></li>
+        </ul>
+    </nav>
+
+    <div class="auth-buttons">
+        {% if request.user.is_authenticated %}
+        <div class="profile-dropdown">
+            <button class="profile-btn">
+                👤 {{ request.user.username }}
+            </button>
+
+            <div class="dropdown-content">
+                <a href="{% url 'dashboard' %}">Dashboard</a>
+                <a href="{% url 'logout' %}">Logout</a>
+            </div>
+        </div>
+        {% else %}
+        <a href="{% url 'login' %}">
+            <button class="login-btn">Login</button>
+        </a>
+        {% endif %}
+    </div>
 
 </header>
 
-<!-- Dashboard Content Here -->
 
 <div class="dashboard-container">
 
-<div class="welcome-card">
+    {% if error %}
+        <div class="section-card">
+            <h2>{{ error }}</h2>
+            <p>Please complete your assessment first to view the dashboard.</p>
 
-<h1>
+            <br>
 
-Welcome Back,
-{{ request.user.username }} 👋
+            <a href="{% url 'assessment_page' %}">
+                <button>Go to Assessment</button>
+            </a>
+        </div>
+    {% else %}
 
-</h1>
+    <!-- =========================================
+    WELCOME + SUMMARY
+    ========================================== -->
+    <div class="welcome-card dashboard-hero-card">
+        <div class="dashboard-hero-left">
+            <h1>
+                Welcome back,
+                {{ dashboard.user.name|default:request.user.username }} 👋
+            </h1>
 
-<p>
+            <p>
+                Here is your latest Calmify AI mental wellness summary.
+                These insights are based on your most recent assessment.
+            </p>
 
-Track your wellness journey with Calmify AI.
+            <div class="dashboard-badges">
+                <span class="risk-badge risk-{{ overall_risk_class }}">
+                    Overall Risk: {{ overall_risk_level|default:"Unknown" }}
+                </span>
 
-</p>
+                <span class="risk-badge risk-{{ mental_status_class }}">
+                    Mental Health: {{ mental_health_status|default:"Unknown" }}
+                </span>
 
+                <span class="risk-badge risk-{{ stress_type_class }}">
+                    Stress Type: {{ stress_type|default:"Unknown" }}
+                </span>
+            </div>
+        </div>
+
+        <div class="dashboard-hero-right">
+            <div class="hero-mini-card">
+                <h3>Burnout Level</h3>
+                <div class="hero-mini-value">
+                    {{ burnout_level|default:"N/A" }}
+                </div>
+            </div>
+
+            <div class="hero-mini-card">
+                <h3>Wellness Level</h3>
+                <div class="hero-mini-value">
+                    {{ wellness_level|default:"N/A" }}
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- =========================================
+    MAIN METRIC CARDS
+    ========================================== -->
+    <div class="stats-grid">
+
+        <div class="stat-card status-card burnout-card">
+            <div class="stat-top">
+                <h2>Burnout Score</h2>
+                <span class="mini-badge badge-{{ burnout_class }}">
+                    {{ burnout_level|default:"N/A" }}
+                </span>
+            </div>
+            <div class="score">{{ burnout_score|default:"N/A" }}</div>
+            <p class="stat-desc">
+                Indicates emotional/academic exhaustion pattern.
+            </p>
+        </div>
+
+        <div class="stat-card status-card wellness-card">
+            <div class="stat-top">
+                <h2>Wellness Score</h2>
+                <span class="mini-badge badge-{{ wellness_class }}">
+                    {{ wellness_level|default:"N/A" }}
+                </span>
+            </div>
+            <div class="score">{{ wellness_score|default:"N/A" }}</div>
+            <p class="stat-desc">
+                Overall stability and self-care related wellness score.
+            </p>
+        </div>
+
+        <div class="stat-card status-card stress-card">
+            <div class="stat-top">
+                <h2>Stress Type</h2>
+                <span class="mini-badge badge-{{ stress_type_class }}">
+                    {{ stress_type|default:"N/A" }}
+                </span>
+            </div>
+            <div class="score">{{ stress_risk_score|default:"N/A" }}</div>
+            <p class="stat-desc">
+                Stress risk score derived from stress dataset model.
+            </p>
+        </div>
+
+        <div class="stat-card status-card mental-card">
+            <div class="stat-top">
+                <h2>Mental Health Status</h2>
+                <span class="mini-badge badge-{{ mental_status_class }}">
+                    {{ mental_health_status|default:"N/A" }}
+                </span>
+            </div>
+            <div class="score small-score">
+                {{ student_stress_level|default:"N/A" }}
+            </div>
+            <p class="stat-desc">
+                Student stress level / mental health classification summary.
+            </p>
+        </div>
+
+    </div>
+
+
+    <!-- =========================================
+    QUICK SUMMARY STRIP
+    ========================================== -->
+    <div class="section-card quick-summary-strip">
+        <div class="quick-summary-item">
+            <span class="qs-label">Music Effect</span>
+            <span class="qs-value">{{ music_effect_label|default:"N/A" }}</span>
+        </div>
+
+        <div class="quick-summary-item">
+            <span class="qs-label">Student Risk Band</span>
+            <span class="qs-value">{{ student_risk_band|default:"N/A" }}</span>
+        </div>
+
+        <div class="quick-summary-item">
+            <span class="qs-label">Stress Label</span>
+            <span class="qs-value">{{ student_stress_level_label|default:"N/A" }}</span>
+        </div>
+
+        <div class="quick-summary-item">
+            <span class="qs-label">Music Support Genres</span>
+            <span class="qs-value">{{ recommended_genres|length }}</span>
+        </div>
+    </div>
+
+
+    <!-- =========================================
+    CHARTS SECTION
+    ========================================== -->
+    <div class="analytics-section">
+        <h2>Analytics Overview</h2>
+        <p class="section-note">
+            A quick comparison of your current burnout, wellness and stress indicators.
+        </p>
+
+        <div class="chart-wrapper">
+            <canvas id="wellnessBarChart"></canvas>
+        </div>
+    </div>
+
+
+    <!-- =========================================
+    ALERTS
+    ========================================== -->
+    <div class="section-card">
+        <h2>Important Alerts</h2>
+
+        {% if alerts %}
+            <div class="alert-list">
+                {% for alert in alerts %}
+                    <div class="alert-item">
+                        <i class="fa-solid fa-triangle-exclamation"></i>
+                        <span>{{ alert }}</span>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p>No critical alerts detected right now.</p>
+        {% endif %}
+    </div>
+
+
+    <!-- =========================================
+    TOP RECOMMENDATIONS
+    ========================================== -->
+    <div id="recommendations" class="suggestion-section">
+        <h2>Top Recommendations</h2>
+
+        {% if top_recommendations %}
+            <div class="recommendation-grid">
+                {% for rec in top_recommendations %}
+                    <div class="recommendation-card">
+                        <div class="recommendation-icon">
+                            <i class="fa-solid fa-lightbulb"></i>
+                        </div>
+                        <div class="recommendation-text">
+                            {{ rec }}
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p>No top recommendations available yet.</p>
+        {% endif %}
+    </div>
+
+
+    <!-- =========================================
+    SELF CARE PLAN
+    ========================================== -->
+    <div class="section-card">
+        <div class="section-head-with-action">
+            <h2>Self Care Plan</h2>
+            <button class="small-action-btn" onclick="toggleAllSelfCare()">
+                Expand / Collapse All
+            </button>
+        </div>
+
+        {% if self_care_plan %}
+            <div class="self-care-list">
+                {% for plan in self_care_plan %}
+                    <div class="self-care-card">
+                        <div class="self-care-header" onclick="toggleSelfCareCard(this)">
+                            <div>
+                                <h3>{{ plan.title }}</h3>
+                                <p class="self-care-priority">
+                                    Priority: {{ plan.priority|default:"medium"|title }}
+                                </p>
+                            </div>
+                            <i class="fa-solid fa-chevron-down"></i>
+                        </div>
+
+                        <div class="self-care-body">
+                            <p class="self-care-why">
+                                {{ plan.why }}
+                            </p>
+
+                            {% if plan.actions %}
+                            <ul>
+                                {% for action in plan.actions %}
+                                    <li>{{ action }}</li>
+                                {% endfor %}
+                            </ul>
+                            {% endif %}
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p>No self-care plan generated yet.</p>
+        {% endif %}
+    </div>
+
+
+    <!-- =========================================
+    COPING TIPS
+    ========================================== -->
+    <div class="section-card">
+        <h2>Coping Tips</h2>
+
+        {% if coping_tips %}
+            <div class="coping-grid">
+                {% for tip in coping_tips %}
+                    <div class="coping-card">
+                        <h3>{{ tip.category|title }}</h3>
+                        <p class="coping-main">{{ tip.tip }}</p>
+                        <p class="coping-reason">{{ tip.reason }}</p>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p>No coping tips available.</p>
+        {% endif %}
+    </div>
+
+
+    <!-- =========================================
+    MUSIC SUPPORT
+    ========================================== -->
+    <div id="musicSupport" class="music-section">
+        <h2>Music Support & Recommendations 🎵</h2>
+
+        <div class="music-summary-box">
+            <div class="music-summary-item">
+                <span class="music-summary-label">Music Effect Prediction</span>
+                <span class="music-summary-value">
+                    {{ music_effect_label|default:music_effect_prediction|default:"N/A" }}
+                </span>
+            </div>
+        </div>
+
+        {% if recommended_genres %}
+            <h3 class="sub-section-title">Recommended Genres</h3>
+            <div class="genre-chip-wrap">
+                {% for genre in recommended_genres %}
+                    <span class="genre-chip">{{ genre }}</span>
+                {% endfor %}
+            </div>
+        {% endif %}
+
+        {% if music_reasoning %}
+            <h3 class="sub-section-title">Why these genres?</h3>
+            <ul class="music-reasoning-list">
+                {% for reason in music_reasoning %}
+                    <li>{{ reason }}</li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+
+        {% if music_recommendations %}
+            <h3 class="sub-section-title">Music Recommendation Cards</h3>
+
+            <div class="music-recommendation-grid">
+                {% for item in music_recommendations %}
+                    <div class="music-rec-card">
+                        <div class="music-rec-top">
+                            <h4>{{ item.context|default:"Music Support"|title }}</h4>
+                        </div>
+
+                        <p class="music-rec-why">{{ item.why }}</p>
+
+                        {% if item.suggested_genres %}
+                            <div class="genre-chip-wrap">
+                                {% for genre in item.suggested_genres %}
+                                    <span class="genre-chip alt">{{ genre }}</span>
+                                {% endfor %}
+                            </div>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+    </div>
+
+
+    <!-- =========================================
+    RED FLAGS + POSITIVE SIGNALS
+    ========================================== -->
+    <div class="insight-two-col">
+
+        <div class="section-card insight-card">
+            <h2>Red Flags</h2>
+
+            {% if red_flags %}
+                <ul class="insight-list red-list">
+                    {% for flag in red_flags %}
+                        <li>{{ flag }}</li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                <p>No major red flags detected.</p>
+            {% endif %}
+        </div>
+
+        <div class="section-card insight-card">
+            <h2>Positive Signals</h2>
+
+            {% if positive_signals %}
+                <ul class="insight-list green-list">
+                    {% for signal in positive_signals %}
+                        <li>{{ signal }}</li>
+                    {% endfor %}
+                </ul>
+            {% else %}
+                <p>No positive signals available yet.</p>
+            {% endif %}
+        </div>
+
+    </div>
+
+
+    <!-- =========================================
+    FOLLOW UP ACTIONS
+    ========================================== -->
+    <div class="section-card">
+        <h2>Follow Up Actions</h2>
+
+        {% if follow_up_actions %}
+            <div class="follow-up-grid">
+                {% for action in follow_up_actions %}
+                    <div class="follow-up-card">
+                        <div class="follow-up-priority">
+                            {{ action.priority|default:"medium"|upper }}
+                        </div>
+                        <h3>{{ action.action }}</h3>
+                        <p>{{ action.reason }}</p>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p>No follow-up actions generated.</p>
+        {% endif %}
+    </div>
+
+
+    <!-- =========================================
+    DOWNLOAD REPORT
+    ========================================== -->
+    <div class="section-card">
+        <h2>Wellness Report</h2>
+        <p>Download your current dashboard summary as a report.</p>
+
+        <br>
+
+        <a href="{% url 'download_report' %}">
+            <button>
+                <i class="fa-solid fa-download"></i>
+                Download PDF Report
+            </button>
+        </a>
+    </div>
+
+    {% endif %}
 </div>
 
-<div class="section-card">
-
-<h2>
-
-📈 Weekly Wellness Summary
-
-</h2>
-
-<h3>
-
-Average Mood Score:
-
-{{ weekly_average }}/10
-
-</h3>
-
-</div>
-
-<div class="stats-grid">
-
-<div class="stat-card">
-
-<h2>Wellness Score</h2>
-
-<div class="score">
-
-{{ wellness_score }}%
-
-</div>
-
-</div>
-
-<div class="stat-card">
-
-<h2>Emotion</h2>
-
-<div class="emotion">
-
-{{ latest_mood.emotion }}
-
-</div>
-
-</div>
-
-<div class="stat-card">
-
-<h2>Sleep Hours</h2>
-
-<div class="sleep">
-
-{{ latest_mood.sleep_hours }}
-
-</div>
-
-</div>
-
-</div>
-
-<!--ai suggest-->
-
-<div class="suggestion-section"
-id="suggestions">
-
-<h2>
-
-AI Suggestions
-
-</h2>
-
-<ul>
-
-{% for suggestion in suggestions %}
-
-<li>
-
-{{ suggestion }}
-
-</li>
-
-{% endfor %}
-
-</ul>
-
-</div>
-
-<!--music-->
-
-<div class="music-section">
-
-<h2>
-
-Music Recommendations 🎵
-
-</h2>
-
-<ul>
-
-{% for song in music %}
-
-<li>
-
-{{ song }}
-
-</li>
-
-{% endfor %}
-
-</ul>
-
-</div>
-
-<!-- journal -->
-
-<div class="journal-section">
-
-<h2>
-
-Recent Journal Entries
-
-</h2>
-
-{% for mood in recent_journals %}
-
-<div class="journal-card">
-
-{{ mood.journal_text }}
-
-</div>
-
-{% endfor %}
-
-</div>
-
-<!-- mood -->
-
-<div class="analytics-section"
-id="analytics">
-
-<h2>
-
-Mood Analytics
-
-</h2>
-
-<canvas id="moodChart">
-
-</canvas>
-
-</div>
-
-<!-- sleep -->
-
-<div class="analytics-section">
-
-<h2>
-
-Sleep Analytics
-
-</h2>
-
-<canvas id="sleepChart">
-
-</canvas>
-
-</div>
-
-<!-- mood history-->
-
-<div class="section-card">
-
-<h2>
-
-Mood History
-
-</h2>
-
-<table>
-
-<tr>
-
-<th>Date</th>
-<th>Mood</th>
-<th>Emotion</th>
-<th>Sleep</th>
-
-</tr>
-
-{% for mood in user_history %}
-
-<tr>
-
-<td>
-
-{{ mood.created_at|date:"d M Y" }}
-
-</td>
-
-<td>
-
-{{ mood.mood_score }}
-
-</td>
-
-<td>
-
-{{ mood.emotion }}
-
-</td>
-
-<td>
-
-{{ mood.sleep_hours }}
-
-</td>
-
-</tr>
-
-{% endfor %}
-
-</table>
-
-</div>
-
-<!-- report -->
-
-<div class="section-card">
-
-<h2>
-
-📄 Wellness Report
-
-</h2>
-
-<a href="{% url 'download_report' %}">
-
-    <button>
-
-        Download PDF Report
-
-    </button>
-
-</a>
-
-</div>
-
-<!-- Footer Here -->
 
 <footer>
-
-<p>
-
-© 2026 Calmify AI
-
-</p>
-
-<p>
-
-Developed by Mohit Bhargav
-
-</p>
-
-<div class="social-icons">
-
-<a href="#">
-<i class="fab fa-linkedin"></i>
-</a>
-
-<a href="#">
-<i class="fab fa-github"></i>
-</a>
-
-<a href="#">
-<i class="fab fa-instagram"></i>
-</a>
-
-<a href="#">
-<i class="fab fa-twitter"></i>
-</a>
-
-</div>
-
+    <p>© 2026 Calmify AI</p>
+    <p>Developed by Mohit Bhargav</p>
 </footer>
 
-</div>
 
-<!-- script -->
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <script>
-
-const dates = {{ dates|safe }};
-
-const moodScores = {{ mood_scores|safe }};
-
-const sleepData = {{ sleep_data|safe }};
-
-new Chart(
-document.getElementById('moodChart'),
-{
-type:'line',
-data:{
-labels:dates,
-datasets:[{
-label:'Mood Score',
-data:moodScores
-}]
-}
-}
-);
-
-new Chart(
-document.getElementById('sleepChart'),
-{
-type:'bar',
-data:{
-labels:dates,
-datasets:[{
-label:'Sleep Hours',
-data:sleepData
-}]
-}
-}
-);
-
-
-/**************
- button
- *************/
-
-
-function toggleMenu() {
-
-    document
-    .getElementById("profileMenu")
-    .classList.toggle("show");
-}
-
-window.onclick = function(event) {
-
-    if (!event.target.matches('.profile-btn')) {
-
-        let dropdowns =
-            document.getElementsByClassName(
-                "dropdown-content"
-            );
-
-        for (let i = 0; i < dropdowns.length; i++) {
-
-            dropdowns[i]
-            .classList.remove("show");
-        }
-    }
-}
-
-
+    window.dashboardChartData = {
+        burnoutScore: {{ burnout_score|default:0 }},
+        wellnessScore: {{ wellness_score|default:0 }},
+        stressRiskScore: {{ stress_risk_score|default:0 }},
+        studentStressLevel: {{ student_stress_level|default:0 }}
+    };
 </script>
 
-</body>
+<script src="{% static 'js/dashboard.js' %}"></script>
 
+</body>
 </html>

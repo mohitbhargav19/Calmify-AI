@@ -1,27 +1,79 @@
 from django.urls import path
-from . import views
+
+from .views import (
+    home_view,
+    assessment_page,
+    dashboard_view,
+    AssessmentQuestionsView,
+    AssessmentSubmitView,
+    login_view,
+    signup_view,
+    logout_view,
+)
+from .views import download_report
 
 urlpatterns = [
 
-    path('', views.home, name='home'),
-
-    path('signup/', views.signup_page, name='signup'),
-
-    path('login/', views.login_page, name='login'),
-
-    path('logout/', views.logout_user, name='logout'),
-
-    path('dashboard/', views.dashboard, name='dashboard'),
+    # ------------------------
+    # HTML Pages
+    # ------------------------
 
     path(
-        'download-report/',
-        views.download_report,
-        name='download_report'
+        "",
+        home_view,
+        name="home",
+    ),
+    
+    path(
+    "download-report/",
+    download_report,
+    name="download_report",
     ),
 
     path(
-        'moods/',
-        views.mood_list,
-        name='mood-list'
+        "assessment/",
+        assessment_page,
+        name="assessment_page",
     ),
+
+    path(
+        "dashboard/",
+        dashboard_view,
+        name="dashboard",
+    ),
+
+    # ------------------------
+    # APIs
+    # ------------------------
+
+    path(
+    "api/assessment/questions/",
+    AssessmentQuestionsView.as_view(),
+    name="assessment_questions",
+),
+
+path(
+    "api/assessment/submit/",
+    AssessmentSubmitView.as_view(),
+    name="assessment_submit",
+),
+    
+    path(
+    "login/",
+    login_view,
+    name="login",
+),
+
+path(
+    "signup/",
+    signup_view,
+    name="signup",
+),
+
+path(
+    "logout/",
+    logout_view,
+    name="logout",
+),
+
 ]

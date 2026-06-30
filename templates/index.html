@@ -15,7 +15,11 @@
 <body>
 
     <!-- HEADER -->
-    <div class="logo-container">
+    
+<header>
+
+<div class="logo-container">
+    
 
     <img src="{% static 'images/logo.png' %}" alt="Calmify AI Logo">
 
@@ -30,7 +34,7 @@
                 <li><a href="/">Home</a></li>
                 <li><a href="#about">About</a></li>
                  <li><a href="#reports">Previous Reports</a></li>
-                <li><a href="#tracker">Start Tracking</a></li>
+                <li><a href="{% url 'assessment_page' %}">Assessment</a></li>
             </ul>
         </nav>
 
@@ -91,9 +95,9 @@
                 emotional support, and personalized insights.
             </p>
 
-            <a href="#tracker">
+            <a href="{% url 'assessment_page' %}">
                 <button class="start-btn">
-                    Start Your Wellness Journey
+                     Start Mental Health Assessment
                 </button>
             </a>
 
@@ -149,37 +153,120 @@
         </table>
     </section>
 
+    
+<!-- =======================================
+MENTAL HEALTH ASSESSMENT SECTION
+======================================= -->
 
-    <!-- START TRACKING SECTION -->
-    <section id="tracker" class="section-card">
+<section class="section-card">
 
-        <h2>Start Tracking Your Mood</h2>
+    <h2>
+        Start Mental Health Assessment
+    </h2>
 
-        <form id="moodForm">
+    <p>
+        Answer 30 scientifically designed questions and get
+        personalized stress analysis, burnout prediction,
+        wellness score and music recommendations.
+    </p>
 
-            <label>Mood Score</label>
-            <input type="number" id="mood_score" min="1" max="10">
+    <br>
 
-            <label>Emotion</label>
-            <select id="emotion">
-                <option value="happy">Happy</option>
-                <option value="sad">Sad</option>
-                <option value="anxious">Anxious</option>
-                <option value="stressed">Stressed</option>
-                <option value="neutral">Neutral</option>
-            </select>
+    <a href="{% url 'assessment_page' %}">
+        <button class="start-btn">
+            Start Assessment
+        </button>
+    </a>
 
-            <label>Journal Entry</label>
-            <textarea id="journal_text"></textarea>
+</section>
 
-            <label>Sleep Hours</label>
-            <input type="number" id="sleep_hours" step="0.1">
 
-            <button type="submit">Submit Mood</button>
+<!-- =======================================
+DAILY WELLNESS TIPS
+======================================= -->
 
-        </form>
-    </section>
+<section class="section-card">
 
+    <h2>
+        Daily Wellness Tips
+    </h2>
+
+    <div class="wellness-grid">
+
+        <div class="tip-card">
+
+            <h3>😴 Sleep Well</h3>
+
+            <p>
+                Aim for 7-8 hours of quality sleep every day.
+            </p>
+
+        </div>
+
+        <div class="tip-card">
+
+            <h3>🏃 Stay Active</h3>
+
+            <p>
+                Physical activity improves mood and focus.
+            </p>
+
+        </div>
+
+        <div class="tip-card">
+
+            <h3>🎵 Music Therapy</h3>
+
+            <p>
+                Calming music can help reduce stress and anxiety.
+            </p>
+
+        </div>
+
+        <div class="tip-card">
+
+            <h3>🧘 Mindfulness</h3>
+
+            <p>
+                Practice breathing exercises and meditation.
+            </p>
+
+        </div>
+
+    </div>
+
+</section>
+
+
+<!-- =======================================
+QUICK MOOD CHECK
+======================================= -->
+
+<section class="section-card">
+
+    <h2>
+        Quick Mood Check
+    </h2>
+
+    <p>
+        How are you feeling today?
+    </p>
+
+    <div class="mood-buttons">
+
+        <button type="button">😊 Happy</button>
+
+        <button type="button">😌 Calm</button>
+
+        <button type="button">😐 Neutral</button>
+
+        <button type="button">😟 Stressed</button>
+
+        <button type="button">😢 Sad</button>
+
+    </div>
+
+</section>
 
     <footer>
 
