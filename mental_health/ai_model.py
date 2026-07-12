@@ -1,38 +1,9 @@
-"""
-ai_model.py
-
-Central AI Prediction Service for Calmify AI
-
-Responsibilities
-----------------
-1. Load trained ML models
-2. Load feature columns
-3. Load label encoders
-4. Predict every model
-5. Build combined summary
-6. Public prediction API
-"""
-
-"""
-ai_model.py
-
-Central AI Prediction Service for Calmify AI
-
-Responsibilities
-----------------
-1. Load trained ML models
-2. Load feature columns
-3. Load label encoders
-4. Predict using all trained models
-5. Build combined mental health summary
-6. Public API for ml_engine.py
-
-Compatible with:
-    ✓ feature_builder.py
-    ✓ model_feature_mapper.py
-    ✓ ml_engine.py
-    ✓ views.py
-"""
+# ==========================================================
+# ai_model.py
+#
+# Central AI Prediction Service
+# Calmify AI
+# ==========================================================
 
 # ==========================================================
 # IMPORTS
@@ -40,9 +11,11 @@ Compatible with:
 
 import json
 import logging
+
 from pathlib import Path
-from typing import Any
-from typing import Any, Dict, List, Optional
+
+from typing import Any, Dict, Optional
+
 import joblib
 import numpy as np
 import pandas as pd
@@ -57,6 +30,12 @@ from .model_feature_mapper import (
     FEATURE_COLUMNS_FILE_MAP,
     LABEL_ENCODER_FILE_MAP,
     MODEL_OUTPUT_KEY_MAP,
+    BURNOUT_MODEL,
+    WELLNESS_MODEL,
+    MENTAL_HEALTH_STATUS_MODEL,
+    STUDENT_SURVEY_MODEL,
+    STRESS_DATASET_MODEL,
+    MXMH_CASE2_MODEL,
 )
 
 # ==========================================================
@@ -74,76 +53,116 @@ BASE_DIR = Path(__file__).resolve().parent
 MODEL_DIR = BASE_DIR / "models"
 
 # ==========================================================
+# MANUAL LABEL MAPS
+# ==========================================================
+
+MENTAL_HEALTH_LABEL_MAP = {
+
+    0: "Healthy",
+
+    1: "Mild Concern",
+
+    2: "Moderate Concern",
+
+    3: "High Risk",
+
+    4: "Severe Risk",
+
+    5: "Critical",
+
+}
+
+STUDENT_SURVEY_LABEL_MAP = {
+
+    0: "Low Stress",
+
+    1: "Moderate Stress",
+
+    2: "High Stress",
+
+}
+
+STRESS_DATASET_LABEL_MAP = {
+
+    0: "Low Stress",
+
+    1: "Moderate Stress",
+
+    2: "High Stress",
+
+}
+
+# ==========================================================
 # AI MODEL SERVICE
 # ==========================================================
 
 class AIModelService:
     """
-    Central Prediction Service.
+    Central AI Prediction Service.
 
-    Responsible for:
-
-    • Loading trained models
-    • Loading feature columns
-    • Loading label encoders
-    • Running predictions
-    • Returning combined mental health assessment
+    Responsibilities
+    ----------------
+    • Load trained models
+    • Load feature columns
+    • Load label encoders
     """
 
+    # ======================================================
+    # INITIALIZATION
+    # ======================================================
+
     def __init__(self):
-        """
-        Initialise AI model service.
-        """
 
-        # Loaded sklearn/xgboost models
-        self.models = {}
+        self.models: Dict[str, Any] = {}
 
-        # Feature column list for every model
-        self.feature_columns = {}
+        self.feature_columns: Dict[str, list] = {}
 
-        # Label encoders (if any)
-        self.label_encoders = {}
+        self.label_encoders: Dict[str, Any] = {}
 
         logger.info("Initializing AIModelService...")
 
-        # Automatically load all trained models
         self.load_models()
-        
-            # ==========================================================
-    # LOAD FEATURE COLUMNS
-    # ==========================================================
 
-    def _load_feature_columns(self, model_key):
-        """
-        Load feature columns used during training.
-        """
+    # ======================================================
+    # LOAD FEATURE COLUMNS
+    # ======================================================
+
+    def _load_feature_columns(
+        self,
+        model_key: str,
+    ) -> Optional[list]:
 
         filename = FEATURE_COLUMNS_FILE_MAP.get(model_key)
 
         if filename is None:
             return None
 
-        file_path = MODEL_DIR / filename
+        path = MODEL_DIR / filename
 
-        if not file_path.exists():
+        if not path.exists():
 
             logger.warning(
                 "Feature file not found: %s",
-                file_path,
+                path,
             )
 
             return None
 
         try:
 
-            if file_path.suffix.lower() == ".json":
+            if path.suffix.lower() == ".json":
 
-                with open(file_path, "r", encoding="utf-8") as file:
+                with open(
+                    path,
+                    "r",
+                    encoding="utf-8",
+                ) as file:
+
                     columns = json.load(file)
 
             else:
 
-                columns = joblib.load(file_path)
+                columns = joblib.load(path)
 
             if isinstance(columns, pd.Index):
                 columns = columns.tolist()
@@ -152,8 +171,7 @@ class AIModelService:
                 columns = list(columns)
 
             logger.info(
-                "Loaded %d feature columns for %s",
-                len(columns),
+                "%s feature columns loaded.",
                 model_key,
             )
 
@@ -162,44 +180,43 @@ class AIModelService:
         except Exception:
 
             logger.exception(
-                "Failed loading feature columns for %s",
+                "Unable to load feature columns for %s",
                 model_key,
             )
 
             return None
 
-
-    # ==========================================================
+    # ======================================================
     # LOAD LABEL ENCODER
-    # ==========================================================
+    # ======================================================
 
-    def _load_label_encoder(self, model_key):
-        """
-        Load LabelEncoder if available.
-        """
+    def _load_label_encoder(
+        self,
+        model_key: str,
+    ):
 
         filename = LABEL_ENCODER_FILE_MAP.get(model_key)
 
         if filename is None:
             return None
 
-        file_path = MODEL_DIR / filename
+        path = MODEL_DIR / filename
 
-        if not file_path.exists():
+        if not path.exists():
 
-            logger.warning(
-                "Label encoder not found: %s",
-                file_path,
+            logger.info(
+                "%s does not use LabelEncoder.",
+                model_key,
             )
 
             return None
 
         try:
 
-            encoder = joblib.load(file_path)
+            encoder = joblib.load(path)
 
             logger.info(
-                "Loaded label encoder for %s",
+                "%s label encoder loaded.",
                 model_key,
             )
 
@@ -208,21 +225,17 @@ class AIModelService:
         except Exception:
 
             logger.exception(
-                "Failed loading label encoder for %s",
+                "Unable to load label encoder for %s",
                 model_key,
             )
 
             return None
 
-
-    # ==========================================================
-    # LOAD MODELS
-    # ==========================================================
+    # ======================================================
+    # LOAD ALL MODELS
+    # ======================================================
 
     def load_models(self):
-        """
-        Load every trained model defined in TRAINED_MODEL_KEYS.
-        """
 
         logger.info("Loading Calmify AI models...")
 
@@ -242,8 +255,8 @@ class AIModelService:
             if not model_path.exists():
 
                 logger.warning(
-                    "Model not found: %s",
-                    model_path,
+                    "%s model file missing.",
+                    model_key,
                 )
 
                 continue
@@ -268,35 +281,27 @@ class AIModelService:
             except Exception:
 
                 logger.exception(
-                    "Failed loading model %s",
+                    "Failed loading %s",
                     model_key,
                 )
 
-
-    # ==========================================================
+    # ======================================================
     # RELOAD MODELS
-    # ==========================================================
+    # ======================================================
 
     def reload_models(self):
-        """
-        Reload every trained model.
-        """
+
+        logger.info("Reloading AI models...")
 
         self.load_models()
 
-        logger.info("All models reloaded successfully.")
-
-        return True
-
-
-    # ==========================================================
+    # ======================================================
     # MODEL STATUS
-    # ==========================================================
+    # ======================================================
 
-    def get_model_status(self):
-        """
-        Returns loading status of every model.
-        """
+    def get_model_status(
+        self,
+    ) -> Dict[str, Any]:
 
         status = {}
 
@@ -304,129 +309,214 @@ class AIModelService:
 
             status[model_key] = {
 
-                "model_loaded":
+                "loaded":
                     model_key in self.models,
 
-                "feature_columns_loaded":
-                    self.feature_columns.get(model_key) is not None,
+                "feature_columns":
+                    self.feature_columns.get(model_key)
+                    is not None,
 
-                "label_encoder_loaded":
-                    self.label_encoders.get(model_key) is not None,
+                "label_encoder":
+                    self.label_encoders.get(model_key)
+                    is not None,
 
             }
 
         return status
     
-        # ==========================================================
+        # ======================================================
     # ALIGN FEATURES
-    # ==========================================================
+    # ======================================================
 
     def _align_features(
         self,
         model_key: str,
-        features: dict,
+        features: Dict[str, Any],
     ) -> pd.DataFrame:
         """
-        Align incoming features with the exact feature order
-        used during model training.
+        Align incoming feature dictionary with the
+        exact feature order used during training.
         """
 
-        feature_columns = self.feature_columns.get(model_key)
+        columns = self.feature_columns.get(model_key)
 
-        # If feature file not available,
-        # use raw feature dictionary.
-        if feature_columns is None:
+        if columns is None:
             return pd.DataFrame([features])
 
         aligned = {}
 
-        for column in feature_columns:
-
-            value = features.get(column, 0)
-
-            if value is None:
-                value = 0
-
-            aligned[column] = value
+        for column in columns:
+            aligned[column] = features.get(column, 0)
 
         return pd.DataFrame([aligned])
 
-
-    # ==========================================================
-    # DECODE PREDICTION
-    # ==========================================================
+    # ======================================================
+    # DECODE CLASSIFICATION LABEL
+    # ======================================================
 
     def _decode_prediction(
         self,
         model_key: str,
-        prediction,
-    ):
+        prediction: Any,
+    ) -> str:
         """
-        Decode prediction using LabelEncoder if available.
+        Decode classifier outputs.
         """
+
+        # ---------------------------------------------
+        # Manual label maps
+        # ---------------------------------------------
+
+        if model_key == MENTAL_HEALTH_STATUS_MODEL:
+
+            return MENTAL_HEALTH_LABEL_MAP.get(
+                int(prediction),
+                str(prediction),
+            )
+
+        if model_key == STUDENT_SURVEY_MODEL:
+
+            return STUDENT_SURVEY_LABEL_MAP.get(
+                int(prediction),
+                str(prediction),
+            )
+
+        if model_key == STRESS_DATASET_MODEL:
+
+            return STRESS_DATASET_LABEL_MAP.get(
+                int(prediction),
+                str(prediction),
+            )
+
+        # ---------------------------------------------
+        # Label Encoder
+        # ---------------------------------------------
 
         encoder = self.label_encoders.get(model_key)
 
         if encoder is None:
-            return prediction
+            return str(prediction)
 
         try:
 
-            decoded = encoder.inverse_transform(
-                np.array([prediction])
-            )[0]
+            return str(
 
-            return decoded
+                encoder.inverse_transform(
+                    np.array([prediction])
+                )[0]
+
+            )
 
         except Exception:
 
             logger.exception(
-                "Failed decoding prediction for %s",
+                "Label decoding failed for %s",
                 model_key,
             )
 
-            return prediction
+            return str(prediction)
 
-
-    # ==========================================================
+    # ======================================================
     # SINGLE MODEL PREDICTION
-    # ==========================================================
+    # ======================================================
 
     def _predict_single_model(
         self,
         model_key: str,
-        features: dict,
-    ) -> dict:
+        features: Dict[str, Any],
+    ) -> Dict[str, Any]:
         """
-        Predict using one trained model.
+        Run prediction for one trained model.
         """
 
         if model_key not in self.models:
 
             raise RuntimeError(
-                f"Model '{model_key}' is not loaded."
+                f"{model_key} model is not loaded."
             )
 
         model = self.models[model_key]
-
-        # ---------------------------------------------
-        # Align features
-        # ---------------------------------------------
 
         X = self._align_features(
             model_key,
             features,
         )
 
-        # ---------------------------------------------
-        # Prediction
-        # ---------------------------------------------
-
         prediction = model.predict(X)[0]
 
-        prediction = make_json_safe(prediction)
+        # ==================================================
+        # BURNOUT (REGRESSION)
+        # ==================================================
 
-        prediction_label = self._decode_prediction(
+        if model_key == BURNOUT_MODEL:
+
+            score = round(float(prediction), 2)
+
+            if score < 3.33:
+                level = "Low Burnout"
+
+            elif score < 6.66:
+                level = "Moderate Burnout"
+
+            else:
+                level = "High Burnout"
+
+            return make_json_safe({
+
+                "burnout_score": score,
+
+                "prediction": score,
+
+                "prediction_label": level,
+
+                "confidence": None,
+
+                "probabilities": {},
+
+                "features_used": features,
+
+            })
+
+        # ==================================================
+        # WELLNESS (REGRESSION)
+        # ==================================================
+
+        if model_key == WELLNESS_MODEL:
+
+            score = round(float(prediction), 2)
+
+            if score < 40:
+                level = "Poor Wellness"
+
+            elif score < 70:
+                level = "Average Wellness"
+
+            else:
+                level = "Good Wellness"
+
+            return make_json_safe({
+
+                "wellness_score": score,
+
+                "prediction": score,
+
+                "prediction_label": level,
+
+                "confidence": None,
+
+                "probabilities": {},
+
+                "features_used": features,
+
+            })
+
+        # ==================================================
+        # CLASSIFICATION MODELS
+        # ==================================================
+
+        prediction = int(prediction)
+
+        label = self._decode_prediction(
             model_key,
             prediction,
         )
@@ -435,18 +525,18 @@ class AIModelService:
 
             "prediction": prediction,
 
-            "prediction_label": str(prediction_label),
-
-            "features_used": features,
+            "prediction_label": label,
 
             "confidence": None,
 
             "probabilities": {},
 
+            "features_used": features,
+
         }
 
         # ---------------------------------------------
-        # Prediction Probability
+        # Predict probabilities
         # ---------------------------------------------
 
         if hasattr(model, "predict_proba"):
@@ -456,18 +546,21 @@ class AIModelService:
                 probabilities = model.predict_proba(X)[0]
 
                 result["confidence"] = round(
+
                     float(np.max(probabilities)) * 100,
+
                     2,
+
                 )
 
                 result["probabilities"] = {
 
                     str(index): round(
-                        float(probability),
+                        float(value),
                         4,
                     )
 
-                    for index, probability in enumerate(
+                    for index, value in enumerate(
                         probabilities
                     )
 
@@ -476,27 +569,31 @@ class AIModelService:
             except Exception:
 
                 logger.exception(
-                    "Failed computing probability for %s",
+
+                    "Probability calculation failed for %s",
+
                     model_key,
+
                 )
 
         return make_json_safe(result)
     
-        # ==========================================================
+        # ======================================================
     # PREDICT ALL MODELS
-    # ==========================================================
+    # ======================================================
 
     def predict_all(
         self,
         model_inputs: Dict[str, Dict[str, Any]],
     ) -> Dict[str, Any]:
         """
-        Run prediction on all trained models.
+        Run inference on every trained model.
         """
 
         logger.info("Starting prediction pipeline...")
 
         predictions = {}
+
         failed_models = {}
 
         for model_key in TRAINED_MODEL_KEYS:
@@ -530,7 +627,7 @@ class AIModelService:
                 failed_models[model_key] = str(exc)
 
         combined_summary = self._build_combined_summary(
-            predictions
+            predictions,
         )
 
         return {
@@ -544,149 +641,176 @@ class AIModelService:
             "failed_models": failed_models,
 
         }
-        
-            # ==========================================================
+
+    # ======================================================
     # BUILD COMBINED SUMMARY
-    # ==========================================================
+    # ======================================================
 
     def _build_combined_summary(
         self,
         predictions: Dict[str, Any],
     ) -> Dict[str, Any]:
         """
-        Combine outputs of all models into one summary.
+        Create one unified summary from all model outputs.
         """
 
+        burnout = predictions.get("burnout", {})
+
+        wellness = predictions.get("wellness", {})
+
+        mental = predictions.get(
+            "mental_health_status",
+            {},
+        )
+
+        student = predictions.get(
+            "student_survey",
+            {},
+        )
+
+        stress = predictions.get(
+            "stress_dataset",
+            {},
+        )
+
+        mxmh = predictions.get(
+            "mxmh_case2",
+            {},
+        )
+
         overall_risk = self._compute_overall_risk(
-            predictions
+            predictions,
         )
 
         return {
 
             "overall_risk_level": overall_risk,
 
+            "burnout_score":
+                burnout.get("burnout_score"),
+
             "burnout_level":
-                predictions.get(
-                    "burnout",
-                    {}
-                ).get(
-                    "prediction_label",
-                    "Unknown"
-                ),
+                burnout.get("prediction_label"),
+
+            "wellness_score":
+                wellness.get("wellness_score"),
 
             "wellness_level":
-                predictions.get(
-                    "wellness",
-                    {}
-                ).get(
-                    "prediction_label",
-                    "Unknown"
-                ),
+                wellness.get("prediction_label"),
 
             "mental_health_status":
-                predictions.get(
-                    "mental_health_status",
-                    {}
-                ).get(
-                    "prediction_label",
-                    "Unknown"
-                ),
+                mental.get("prediction_label"),
 
             "student_stress_level":
-                predictions.get(
-                    "student_survey",
-                    {}
-                ).get(
-                    "prediction_label",
-                    "Unknown"
-                ),
+                student.get("prediction_label"),
 
             "stress_dataset_level":
-                predictions.get(
-                    "stress_dataset",
-                    {}
-                ).get(
-                    "prediction_label",
-                    "Unknown"
-                ),
+                stress.get("prediction_label"),
 
-            # Rule-based engine ke liye reserved
-            "music_effect_case1":
-                predictions.get(
-                    "mxmh_case1",
-                    {}
-                ).get(
-                    "prediction_label",
-                    "Not Evaluated"
-                ),
-
-            "music_effect_case2":
-                predictions.get(
-                    "mxmh_case2",
-                    {}
-                ).get(
-                    "prediction_label",
-                    "Unknown"
-                ),
+            "music_effect":
+                mxmh.get("prediction_label"),
 
         }
-        
-            # ==========================================================
+
+    # ======================================================
     # COMPUTE OVERALL RISK
-    # ==========================================================
+    # ======================================================
 
     def _compute_overall_risk(
         self,
         predictions: Dict[str, Any],
     ) -> str:
         """
-        Compute overall mental health risk
-        using all trained model outputs.
+        Compute overall mental-health risk from
+        every prediction.
         """
 
         score = 0
 
-        HIGH_RISK = {
-            "high",
-            "critical",
-            "poor",
+        burnout = predictions.get(
             "burnout",
+            {},
+        ).get(
+            "prediction_label",
+            "",
+        )
+
+        if burnout == "High Burnout":
+            score += 2
+
+        elif burnout == "Moderate Burnout":
+            score += 1
+
+        wellness = predictions.get(
+            "wellness",
+            {},
+        ).get(
+            "prediction_label",
+            "",
+        )
+
+        if wellness == "Poor Wellness":
+            score += 2
+
+        elif wellness == "Average Wellness":
+            score += 1
+
+        HIGH_RISK = {
+
+            "high",
+
+            "critical",
+
             "severe",
-            "extreme",
+
+            "burnout",
+
+            "poor",
+
             "distress",
+
         }
 
         MODERATE_RISK = {
+
             "moderate",
-            "medium",
+
             "average",
+
+            "medium",
+
             "borderline",
+
         }
 
-        LOW_RISK = {
-            "healthy",
-            "good",
-            "normal",
-            "low",
-            "stable",
-        }
+        for model_name in [
 
-        for result in predictions.values():
+            "mental_health_status",
 
-            if not isinstance(result, dict):
-                continue
+            "student_survey",
+
+            "stress_dataset",
+
+        ]:
 
             label = str(
-                result.get(
+
+                predictions.get(
+                    model_name,
+                    {},
+                ).get(
                     "prediction_label",
-                    ""
+                    "",
                 )
+
             ).lower()
 
             if any(word in label for word in HIGH_RISK):
+
                 score += 2
 
             elif any(word in label for word in MODERATE_RISK):
+
                 score += 1
 
         if score >= 8:
@@ -713,7 +837,14 @@ def predict_user_assessment(
     assessment_answers: Dict[str, Any],
 ) -> Dict[str, Any]:
     """
-    Main API used by ml_engine.py.
+    Main prediction API used by ml_engine.py.
+
+    Steps
+    -----
+    1. Merge profile & assessment answers
+    2. Build model-wise feature dictionaries
+    3. Run prediction pipeline
+    4. Return prediction bundle
     """
 
     merged_input = {}
@@ -724,30 +855,34 @@ def predict_user_assessment(
     if assessment_answers:
         merged_input.update(assessment_answers)
 
-    # -----------------------------------------
-    # Build model-wise feature dictionaries
-    # -----------------------------------------
+    # ------------------------------------------------------
+    # Build Features
+    # ------------------------------------------------------
 
     model_inputs = build_all_model_inputs(
-        merged_input
+    profile_answers=profile_answers,
+    assessment_answers=assessment_answers,
     )
 
-    # -----------------------------------------
-    # Run prediction pipeline
-    # -----------------------------------------
+    # ------------------------------------------------------
+    # Run Prediction Pipeline
+    # ------------------------------------------------------
 
-    result = ai_model_service.predict_all(
-        model_inputs
+    prediction_result = ai_model_service.predict_all(
+        model_inputs,
     )
 
     # Optional debugging
-    result["model_inputs"] = model_inputs
 
-    return make_json_safe(result)
+    prediction_result["model_inputs"] = model_inputs
+
+    return make_json_safe(
+        prediction_result,
+    )
 
 
 # ==========================================================
-# RELOAD MODELS
+# RELOAD AI MODELS
 # ==========================================================
 
 def reload_ai_models() -> Dict[str, Any]:
@@ -758,18 +893,21 @@ def reload_ai_models() -> Dict[str, Any]:
     ai_model_service.reload_models()
 
     return {
+
         "success": True,
+
         "message": "AI models reloaded successfully.",
+
     }
 
 
 # ==========================================================
-# MODEL STATUS
+# AI MODEL STATUS
 # ==========================================================
 
 def get_ai_model_status() -> Dict[str, Any]:
     """
-    Return loading status of every AI model.
+    Return current loading status of every AI model.
     """
 
     return ai_model_service.get_model_status()

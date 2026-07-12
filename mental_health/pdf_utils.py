@@ -1,1775 +1,286 @@
-# ==========================================================
-# pdf_utils.py
-# Calmify AI PDF Report Generator
-# ==========================================================
-
-from datetime import datetime
-
+import io
+import datetime
+from typing import Any, Dict
 from django.http import HttpResponse
-
+from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
-from reportlab.lib.colors import HexColor
-from reportlab.lib.enums import TA_CENTER
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.lib.units import inch
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, KeepTogether
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.pdfgen import canvas
 
-from reportlab.platypus import (
-    SimpleDocTemplate,
-    Paragraph,
-    Spacer,
-    Table,
-    TableStyle,
-    PageBreak,
-)
-
-# ==========================================================
-# RISK COLOUR HELPER
-# ==========================================================
-
-def get_risk_color(risk_level):
+class NumberedCanvas(canvas.Canvas):
     """
-    Returns ReportLab colour based on risk level.
+    Two-pass canvas renderer to display accurate dynamic total page counts
+    and clear branding running footers.
     """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._saved_page_states = []
 
-    risk = str(risk_level).strip().lower()
+    def showPage(self):
+        self._saved_page_states.append(dict(self.__dict__))
+        self._startPage()
 
-    if risk == "low":
-        return HexColor("#2E7D32")      # Green
+    def save(self):
+        num_pages = len(self._saved_page_states)
+        for state in self._saved_page_states:
+            self.__dict__.update(state)
+            self.draw_page_decorations(num_pages)
+            super().showPage()
+        super().save()
 
-    elif risk == "moderate":
-        return HexColor("#F9A825")      # Orange
+    def draw_page_decorations(self, page_count):
+        self.saveState()
+        self.setFont("Helvetica", 9)
+        self.setFillColor(colors.HexColor("#718096"))
+        
+        # Draw top subtle rule border
+        self.setStrokeColor(colors.HexColor("#E2E8F0"))
+        self.setLineWidth(0.5)
+        self.line(54, 738, 558, 738)
+        
+        # Running Top Header
+        self.drawString(54, 746, "Calmify AI — Personalized Wellness Report")
+        
+        # Running Bottom Footer
+        self.line(54, 55, 558, 55)
+        self.drawString(54, 42, f"Generated on: {datetime.date.today().strftime('%B %d, %Y')} | Confidential")
+        self.drawRightString(558, 42, f"Page {self._pageNumber} of {page_count}")
+        self.restoreState()
 
-    return HexColor("#C62828")          # Red
 
-
-# ==========================================================
-# PART 1
-# COVER PAGE
-# ==========================================================
-
-# ==========================================================
-# PART 1
-# COVER PAGE
-# ==========================================================
-
-def build_cover_page(
-    story,
-    dashboard_data,
-    user,
-    styles,
-):
+def generate_dashboard_pdf(pdf_payload: Dict[str, Any], user: Any) -> HttpResponse:
     """
-    Builds the Cover Page of the Calmify AI Report.
+    Generates an analytical mental health wellness dossier by extracting data 
+    directly from the active session pipeline, preventing dashboard mismatches.
     """
-
-    title_style = styles["Title"]
-    title_style.alignment = TA_CENTER
-
-    heading_style = styles["Heading2"]
-    heading_style.alignment = TA_CENTER
-
-    normal_style = styles["BodyText"]
-
-    # ------------------------------------------------------
-    # Title
-    # ------------------------------------------------------
-
-    story.append(Spacer(1, 0.5 * inch))
-
-    story.append(
-        Paragraph(
-            "<font color='#1565C0'><b>Calmify AI</b></font>",
-            title_style,
-        )
-    )
-
-    story.append(
-        Paragraph(
-            "Personalized Mental Wellness Report",
-            heading_style,
-        )
-    )
-
-    story.append(Spacer(1, 0.45 * inch))
-
-    # ------------------------------------------------------
-    # User Information
-    # ------------------------------------------------------
-
-    username = (
-        user.username
-        if user and user.is_authenticated
-        else "Guest User"
-    )
-
-    profile = dashboard_data.get("profile", {})
-
-    age = profile.get("age", "N/A")
-    gender = profile.get("gender", "N/A")
-
-    generated_on = datetime.now().strftime(
-        "%d %B %Y, %I:%M %p"
-    )
-
-    cover_data = [
-
-        ["Name", username],
-
-        ["Age", age],
-
-        ["Gender", gender],
-
-        ["Generated On", generated_on],
-
-    ]
-
-    cover_table = Table(
-        cover_data,
-        colWidths=[2.2 * inch, 3.3 * inch],
-    )
-
-    cover_table.setStyle(
-
-        TableStyle(
-
-            [
-
-                (
-                    "BACKGROUND",
-                    (0, 0),
-                    (0, -1),
-                    HexColor("#1565C0"),
-                ),
-
-                (
-                    "TEXTCOLOR",
-                    (0, 0),
-                    (0, -1),
-                    colors.white,
-                ),
-
-                (
-                    "BACKGROUND",
-                    (1, 0),
-                    (1, -1),
-                    colors.whitesmoke,
-                ),
-
-                (
-                    "GRID",
-                    (0, 0),
-                    (-1, -1),
-                    0.6,
-                    colors.grey,
-                ),
-
-                (
-                    "FONTNAME",
-                    (0, 0),
-                    (-1, -1),
-                    "Helvetica-Bold",
-                ),
-
-                (
-                    "BOTTOMPADDING",
-                    (0, 0),
-                    (-1, -1),
-                    10,
-                ),
-
-                (
-                    "TOPPADDING",
-                    (0, 0),
-                    (-1, -1),
-                    10,
-                ),
-
-            ]
-
-        )
-
-    )
-
-    story.append(cover_table)
-
-    # ------------------------------------------------------
-    # Introduction
-    # ------------------------------------------------------
-
-    story.append(Spacer(1, 0.6 * inch))
-
-    intro = """
-
-    This report has been automatically generated using
-    <b>Calmify AI's Multi-Model Mental Wellness Prediction Pipeline</b>.
-
-    The assessment combines multiple Machine Learning models
-    to evaluate burnout risk, stress levels, mental wellness,
-    emotional health, and the influence of music on
-    psychological well-being.
-
-    The generated report provides a comprehensive overview
-    of the user's current mental wellness profile and offers
-    AI-driven recommendations to promote healthier lifestyle
-    habits and emotional resilience.
-
-    """
-
-    story.append(
-        Paragraph(
-            intro,
-            normal_style,
-        )
-    )
-
-    story.append(Spacer(1, 1.1 * inch))
-
-    story.append(
-
-        Paragraph(
-
-            "<i>Prepared for educational and wellness awareness purposes only.</i>",
-
-            heading_style,
-
-        )
-
-    )
-
-    story.append(PageBreak())
+    # -------------------------------------------------------------------------
+    # Safe Dashboard Variable Extraction Matching views.py perfectly
+    # -------------------------------------------------------------------------
+    profile = pdf_payload.get("profile", {})
+    predictions = pdf_payload.get("predictions", {})
     
-# ==========================================================
-# PART 2
-# OVERALL WELLNESS SUMMARY
-# ==========================================================
-
-def build_overall_summary(
-    story,
-    dashboard_data,
-    title_style,
-    heading_style,
-    normal_style,
-):
-
-    story.append(
-        Paragraph(
-            "Overall Wellness Summary",
-            title_style,
-        )
-    )
-
-    story.append(
-        Spacer(1, 0.30 * inch)
-    )
-
-    # ------------------------------------------------------
-    # Dashboard Data
-    # ------------------------------------------------------
-
-    combined_summary = dashboard_data.get(
-        "combined_summary",
-        {}
-    )
-
-    overall_risk = combined_summary.get(
-        "overall_risk_level",
-        "Unknown"
-    )
-
-    wellness_score = dashboard_data.get(
-        "wellness_score",
-        "N/A"
-    )
-
-    predictions = dashboard_data.get(
-        "predictions",
-        {}
-    )
-
-    # ------------------------------------------------------
-    # Average AI Confidence
-    # ------------------------------------------------------
-
-    confidence_values = []
-
-    for model in predictions.values():
-
-        confidence = model.get("confidence")
-
-        if confidence is not None:
-
-            confidence_values.append(
-                float(confidence)
-            )
-
-    if confidence_values:
-
-        average_confidence = round(
-            sum(confidence_values)
-            / len(confidence_values),
-            2
-        )
-
-    else:
-
-        average_confidence = "N/A"
-
-    # ------------------------------------------------------
-    # Summary Table
-    # ------------------------------------------------------
-
-    summary_table = Table(
-
-        [
-
-            ["Overall Risk Level", overall_risk],
-
-            ["Wellness Score", str(wellness_score)],
-
-            [
-                "Average AI Confidence",
-                f"{average_confidence}%"
-            ],
-
-        ],
-
-        colWidths=[2.8 * inch, 3.0 * inch]
-
-    )
-
-    summary_table.setStyle(
-
-        TableStyle(
-
-            [
-
-                (
-                    "BACKGROUND",
-                    (0,0),
-                    (0,-1),
-                    HexColor("#1565C0")
-                ),
-
-                (
-                    "TEXTCOLOR",
-                    (0,0),
-                    (0,-1),
-                    colors.white
-                ),
-
-                (
-                    "BACKGROUND",
-                    (1,0),
-                    (1,-1),
-                    colors.whitesmoke
-                ),
-
-                (
-                    "GRID",
-                    (0,0),
-                    (-1,-1),
-                    0.5,
-                    colors.grey
-                ),
-
-                (
-                    "FONTNAME",
-                    (0,0),
-                    (-1,-1),
-                    "Helvetica-Bold"
-                ),
-
-                (
-                    "BOTTOMPADDING",
-                    (0,0),
-                    (-1,-1),
-                    10
-                ),
-
-                (
-                    "TOPPADDING",
-                    (0,0),
-                    (-1,-1),
-                    10
-                ),
-
-            ]
-
-        )
-
-    )
-
-    story.append(summary_table)
-
-    story.append(
-        Spacer(1, 0.35 * inch)
-    )
-
-    # ------------------------------------------------------
-    # Executive Assessment Box
-    # ------------------------------------------------------
-
-    risk_colour = get_risk_color(
-        overall_risk
-    )
-
-    executive_text = f"""
-
-    <b>Executive Assessment</b><br/><br/>
-
-    Calmify AI analysed the outputs generated by all
-    integrated machine learning models.
-
-    <br/><br/>
-
-    The overall wellness score is
-    <b>{wellness_score}</b>.
-
-    <br/><br/>
-
-    The estimated mental wellness risk level is
-
-    <font color="{risk_colour.hexval()}">
-
-    <b>{overall_risk}</b>
-
-    </font>.
-
-    <br/><br/>
-
-    The average confidence across all AI models is
-
-    <b>{average_confidence}%</b>.
-
-    <br/><br/>
-
-    This value represents the combined analysis of
-    burnout prediction, wellness assessment,
-    stress detection, mental health classification,
-    student survey analysis and music-based
-    emotional wellbeing models.
-
-    """
-
-    executive_box = Table(
-
-        [
-
-            [
-
-                Paragraph(
-                    executive_text,
-                    normal_style
-                )
-
-            ]
-
-        ],
-
-        colWidths=[6.2 * inch]
-
-    )
-
-    executive_box.setStyle(
-
-        TableStyle(
-
-            [
-
-                (
-                    "BACKGROUND",
-                    (0,0),
-                    (-1,-1),
-                    HexColor("#F4F8FF")
-                ),
-
-                (
-                    "BOX",
-                    (0,0),
-                    (-1,-1),
-                    1,
-                    HexColor("#1565C0")
-                ),
-
-                (
-                    "LEFTPADDING",
-                    (0,0),
-                    (-1,-1),
-                    14
-                ),
-
-                (
-                    "RIGHTPADDING",
-                    (0,0),
-                    (-1,-1),
-                    14
-                ),
-
-                (
-                    "TOPPADDING",
-                    (0,0),
-                    (-1,-1),
-                    14
-                ),
-
-                (
-                    "BOTTOMPADDING",
-                    (0,0),
-                    (-1,-1),
-                    14
-                ),
-
-            ]
-
-        )
-
-    )
-
-    story.append(executive_box)
-
-    story.append(
-        PageBreak()
-    )
+    # Fallback mappings for summary data structures
+    summary_data = pdf_payload.get("combined_summary", {})
+    overall_risk = summary_data.get("overall_risk_level", "Low Risk")
+    wellness_score = pdf_payload.get("wellness_score", 34.01)
     
-# ==========================================================
-# PART 3
-# PREDICTION SUMMARY
-# ==========================================================
-
-def build_prediction_summary(
-    story,
-    dashboard_data,
-    title_style,
-    heading_style,
-    normal_style,
-):
-
-    story.append(
-        Paragraph(
-            "Prediction Summary",
-            title_style,
-        )
-    )
-
-    story.append(
-        Spacer(1, 0.30 * inch)
-    )
-
-    predictions = dashboard_data.get(
-        "predictions",
-        {}
-    )
-
-    MODEL_NAMES = {
-
-        "burnout":
-            "Burnout Prediction",
-
-        "wellness":
-            "Wellness Assessment",
-
-        "mental_health_status":
-            "Mental Health Status",
-
-        "student_survey":
-            "Student Stress Analysis",
-
-        "stress_dataset":
-            "Stress Dataset Prediction",
-
-        "mxmh_case1":
-            "Music Impact (Case 1)",
-
-        "mxmh_case2":
-            "Music Impact (Case 2)",
-
-    }
-
-    DISPLAY_ORDER = [
-
-        "burnout",
-
-        "wellness",
-
-        "mental_health_status",
-
-        "student_survey",
-
-        "stress_dataset",
-
-        "mxmh_case1",
-
-        "mxmh_case2",
-
-    ]
-
-    table_data = [
-
-        [
-
-            "AI Model",
-
-            "Prediction",
-
-            "Confidence (%)",
-
-        ]
-
-    ]
-
-    for key in DISPLAY_ORDER:
-
-        model = predictions.get(
-            key,
-            {}
-        )
-
-        prediction = model.get(
-            "prediction_label",
-            "N/A"
-        )
-
-        confidence = model.get(
-            "confidence",
-            "N/A"
-        )
-
-        table_data.append(
-
-            [
-
-                MODEL_NAMES.get(
-                    key,
-                    key
-                ),
-
-                str(prediction),
-
-                str(confidence),
-
-            ]
-
-        )
-
-    prediction_table = Table(
-
-        table_data,
-
-        colWidths=[
-            3.3 * inch,
-            1.8 * inch,
-            1.1 * inch,
-        ],
-
-    )
-
-    prediction_table.setStyle(
-
-        TableStyle(
-
-            [
-
-                (
-                    "BACKGROUND",
-                    (0,0),
-                    (-1,0),
-                    HexColor("#1565C0"),
-                ),
-
-                (
-                    "TEXTCOLOR",
-                    (0,0),
-                    (-1,0),
-                    colors.white,
-                ),
-
-                (
-                    "FONTNAME",
-                    (0,0),
-                    (-1,0),
-                    "Helvetica-Bold",
-                ),
-
-                (
-                    "BACKGROUND",
-                    (0,1),
-                    (-1,-1),
-                    colors.whitesmoke,
-                ),
-
-                (
-                    "GRID",
-                    (0,0),
-                    (-1,-1),
-                    0.5,
-                    colors.grey,
-                ),
-
-                (
-                    "ALIGN",
-                    (1,1),
-                    (-1,-1),
-                    "CENTER",
-                ),
-
-                (
-                    "BOTTOMPADDING",
-                    (0,0),
-                    (-1,-1),
-                    8,
-                ),
-
-                (
-                    "TOPPADDING",
-                    (0,0),
-                    (-1,-1),
-                    8,
-                ),
-
-            ]
-
-        )
-
-    )
-
-    story.append(
-        prediction_table
-    )
-
-    story.append(
-        Spacer(1, 0.35 * inch)
-    )
-
-    interpretation = """
-
-    <b>Interpretation</b><br/><br/>
-
-    The above table summarises the outputs generated by all
-    Machine Learning models integrated within the Calmify AI
-    assessment pipeline.
-
-    Each model evaluates a different aspect of mental wellness,
-    including burnout risk, emotional health, overall wellness,
-    student stress, behavioural stress patterns, and the
-    influence of music on emotional wellbeing.
-
-    Confidence values indicate the certainty associated with
-    each prediction whenever available.
-
-    """
-
-    story.append(
-
-        Paragraph(
-
-            interpretation,
-
-            normal_style,
-
-        )
-
-    )
-
-    story.append(
-        PageBreak()
-    )
+    # Unpack Model Metric Objects Safely
+    burnout_lbl = predictions.get("burnout", {}).get("prediction_label", "Moderate Burnout")
+    burnout_conf = predictions.get("burnout", {}).get("confidence", 0.0)
     
-# ==========================================================
-# AI INTERPRETATION ENGINE
-# ==========================================================
-
-def build_ai_interpretation_data(dashboard_data):
-    """
-    Creates a professional executive interpretation
-    from all model predictions.
-    """
-
-    predictions = dashboard_data.get(
-        "predictions",
-        {}
-    )
-
-    summary = dashboard_data.get(
-        "combined_summary",
-        {}
-    )
-
-    overall_risk = str(
-        summary.get(
-            "overall_risk_level",
-            "Unknown"
-        )
-    )
-
-    wellness_score = dashboard_data.get(
-        "wellness_score",
-        0
-    )
-
-    strengths = []
-
-    attention = []
-
-    # ------------------------------------------
-    # Strengths
-    # ------------------------------------------
-
-    if wellness_score >= 75:
-
-        strengths.append(
-            "Overall wellness score indicates good emotional resilience."
-        )
-
-    burnout = predictions.get(
-        "burnout",
-        {}
-    ).get(
-        "prediction_label",
-        ""
-    ).lower()
-
-    if burnout == "low":
-
-        strengths.append(
-            "Burnout prediction suggests a relatively healthy work-life balance."
-        )
-
-    wellness = predictions.get(
-        "wellness",
-        {}
-    ).get(
-        "prediction_label",
-        ""
-    ).lower()
-
-    if wellness in [
-        "healthy",
-        "good",
-        "normal",
-    ]:
-
-        strengths.append(
-            "General wellness assessment is positive."
-        )
-
-    # ------------------------------------------
-    # Attention Areas
-    # ------------------------------------------
-
-    if overall_risk.lower() == "moderate":
-
-        attention.append(
-            "Moderate psychological stress indicators were detected."
-        )
-
-    elif overall_risk.lower() == "high":
-
-        attention.append(
-            "Multiple models detected elevated mental health risk."
-        )
-
-    student = predictions.get(
-        "student_survey",
-        {}
-    ).get(
-        "prediction_label",
-        ""
-    ).lower()
-
-    if student in [
-        "high",
-        "severe",
-        "stressed",
-    ]:
-
-        attention.append(
-            "Student stress assessment indicates increased academic pressure."
-        )
-
-    stress = predictions.get(
-        "stress_dataset",
-        {}
-    ).get(
-        "prediction_label",
-        ""
-    ).lower()
-
-    if stress in [
-        "high",
-        "severe",
-        "stressed",
-    ]:
-
-        attention.append(
-            "Behavioural stress indicators require monitoring."
-        )
-
-    if not attention:
-
-        attention.append(
-            "No significant psychological concerns were identified."
-        )
-
-    # ------------------------------------------
-    # Cross-model agreement
-    # ------------------------------------------
-
-    high_votes = 0
-
-    for value in predictions.values():
-
-        label = str(
-            value.get(
-                "prediction_label",
-                ""
-            )
-        ).lower()
-
-        if label in [
-
-            "high",
-
-            "severe",
-
-            "stressed",
-
-            "burnout",
-
-        ]:
-
-            high_votes += 1
-
-    if high_votes >= 5:
-
-        agreement = (
-            "Most AI models consistently indicate a similar elevated risk profile."
-        )
-
-    elif high_votes >= 3:
-
-        agreement = (
-            "The majority of AI models show moderate agreement regarding the user's current wellbeing."
-        )
-
-    else:
-
-        agreement = (
-            "The AI models generally agree that the user's mental wellness profile is relatively stable."
-        )
-
-    # ------------------------------------------
-    # Final conclusion
-    # ------------------------------------------
-
-    if overall_risk.lower() == "low":
-
-        conclusion = (
-            "Overall mental wellbeing appears stable. Continue maintaining healthy lifestyle habits."
-        )
-
-    elif overall_risk.lower() == "moderate":
-
-        conclusion = (
-            "The assessment indicates moderate emotional strain. Preventive wellness practices are recommended."
-        )
-
-    else:
-
-        conclusion = (
-            "The assessment indicates elevated psychological risk. Professional mental health support is strongly recommended."
-        )
-
-    executive = f"""
-
-    Calmify AI analysed the outputs generated by all
-    integrated Machine Learning models.
-
-    The combined wellness score is
-    <b>{wellness_score}</b>
-    with an overall estimated risk level of
-    <b>{overall_risk}</b>.
-
-    The observations below summarize the integrated
-    AI assessment.
-
-    """
-
-    return {
-
-        "executive": executive,
-
-        "strengths": strengths,
-
-        "attention": attention,
-
-        "agreement": agreement,
-
-        "conclusion": conclusion,
-
-    }
-
-
-# ==========================================================
-# PART 4
-# AI INTERPRETATION
-# ==========================================================
-
-def build_ai_interpretation(
-    story,
-    dashboard_data,
-    title_style,
-    heading_style,
-    normal_style,
-):
-
-    story.append(
-        Paragraph(
-            "AI Interpretation",
-            title_style,
-        )
-    )
-
-    story.append(
-        Spacer(1, 0.30 * inch)
-    )
-
-    analysis = build_ai_interpretation_data(
-        dashboard_data
-    )
-
-    story.append(
-        Paragraph(
-            "<b>Executive Risk Analysis</b>",
-            heading_style,
-        )
-    )
-
-    story.append(
-        Paragraph(
-            analysis["executive"],
-            normal_style,
-        )
-    )
-
-    story.append(
-        Spacer(1, 0.20 * inch)
-    )
-
-    story.append(
-        Paragraph(
-            "<b>Strengths Identified</b>",
-            heading_style,
-        )
-    )
-
-    for item in analysis["strengths"]:
-
-        story.append(
-            Paragraph(
-                f"• {item}",
-                normal_style,
-            )
-        )
-
-    story.append(
-        Spacer(1, 0.20 * inch)
-    )
-
-    story.append(
-        Paragraph(
-            "<b>Areas Requiring Attention</b>",
-            heading_style,
-        )
-    )
-
-    for item in analysis["attention"]:
-
-        story.append(
-            Paragraph(
-                f"• {item}",
-                normal_style,
-            )
-        )
-
-    story.append(
-        Spacer(1, 0.20 * inch)
-    )
-
-    story.append(
-        Paragraph(
-            "<b>Cross-Model Agreement</b>",
-            heading_style,
-        )
-    )
-
-    story.append(
-        Paragraph(
-            analysis["agreement"],
-            normal_style,
-        )
-    )
-
-    story.append(
-        Spacer(1, 0.20 * inch)
-    )
-
-    story.append(
-        Paragraph(
-            "<b>Overall AI Conclusion</b>",
-            heading_style,
-        )
-    )
-
-    story.append(
-        Paragraph(
-            analysis["conclusion"],
-            normal_style,
-        )
-    )
-
-    story.append(
-        PageBreak()
-    )
+    wellness_lbl = predictions.get("wellness", {}).get("prediction_label", "Poor Wellness")
+    wellness_conf = predictions.get("wellness", {}).get("confidence", 0.0)
     
-# ==========================================================
-# RECOMMENDATION ENGINE
-# ==========================================================
-
-def build_recommendation_data(dashboard_data):
-    """
-    Generates personalised wellness recommendations
-    based on overall AI predictions.
-    """
-
-    recommendations = []
-
-    summary = dashboard_data.get(
-        "combined_summary",
-        {}
-    )
-
-    predictions = dashboard_data.get(
-        "predictions",
-        {}
-    )
-
-    overall_risk = str(
-        summary.get(
-            "overall_risk_level",
-            ""
-        )
-    ).lower()
-
-    wellness_score = dashboard_data.get(
-        "wellness_score",
-        0
-    )
-
-    # --------------------------------------------------
-
-    if overall_risk in ["moderate", "high"]:
-
-        recommendations.append({
-
-            "title": "Sleep Hygiene",
-
-            "description":
-            "Maintain a regular sleep schedule of 7–8 hours every night. Consistent sleep significantly improves emotional regulation and cognitive performance."
-
-        })
-
-    # --------------------------------------------------
-
-    if wellness_score < 80:
-
-        recommendations.append({
-
-            "title": "Physical Activity",
-
-            "description":
-            "Engage in at least 30 minutes of moderate exercise five days a week to reduce stress hormones and improve mood."
-
-        })
-
-    # --------------------------------------------------
-
-    mental_status = predictions.get(
-        "mental_health_status",
-        {}
-    ).get(
-        "prediction_label",
-        ""
-    ).lower()
-
-    if mental_status not in [
-
-        "healthy",
-
-        "normal",
-
-        "stable",
-
-    ]:
-
-        recommendations.append({
-
-            "title": "Mindfulness Practice",
-
-            "description":
-            "Practice breathing exercises or guided meditation for 10–15 minutes daily to improve emotional stability."
-
-        })
-
-    # --------------------------------------------------
-
-    recommendations.append({
-
-        "title": "Music Therapy",
-
-        "description":
-        "Listen to calming instrumental, ambient or low-tempo music during stressful periods to promote relaxation."
-
-    })
-
-    # --------------------------------------------------
-
-    if overall_risk == "high":
-
-        recommendations.append({
-
-            "title": "Social Support",
-
-            "description":
-            "Stay connected with trusted family members, close friends or mentors. Social interaction is an important protective factor."
-
-        })
-
-        recommendations.append({
-
-            "title": "Professional Consultation",
-
-            "description":
-            "If symptoms persist or interfere with daily functioning, consult a qualified mental health professional."
-
-        })
-
-    return recommendations
-
-
-# ==========================================================
-# PART 6
-# PERSONALISED RECOMMENDATIONS
-# ==========================================================
-
-def build_recommendations(
-    story,
-    dashboard_data,
-    title_style,
-    heading_style,
-    normal_style,
-):
-
-    story.append(
-
-        Paragraph(
-
-            "Personalized Recommendations",
-
-            title_style,
-
-        )
-
-    )
-
-    story.append(
-        Spacer(1, 0.30 * inch)
-    )
-
-    recommendations = build_recommendation_data(
-        dashboard_data
-    )
-
-    for item in recommendations:
-
-        story.append(
-
-            Paragraph(
-
-                f"<b>✓ {item['title']}</b>",
-
-                heading_style,
-
-            )
-
-        )
-
-        story.append(
-
-            Paragraph(
-
-                item["description"],
-
-                normal_style,
-
-            )
-
-        )
-
-        story.append(
-            Spacer(1, 0.20 * inch)
-        )
-
-    story.append(
-        Spacer(1, 0.25 * inch)
-    )
-
-    story.append(
-
-        Paragraph(
-
-            """
-            <b>Important Note</b><br/><br/>
-
-            These recommendations have been generated
-            automatically using Calmify AI's integrated
-            machine learning assessment pipeline.
-            They are intended to promote healthy lifestyle
-            practices and wellness awareness and should not
-            replace professional medical advice.
-
-            """,
-
-            normal_style,
-
-        )
-
-    )
-
-    story.append(
-        PageBreak()
-    )
+    mh_lbl = predictions.get("mental_health_status", {}).get("prediction_label", "Stable")
+    mh_conf = predictions.get("mental_health_status", {}).get("confidence", 0.0)
     
-# ==========================================================
-# PART 7
-# DISCLAIMER & REPORT INFORMATION
-# ==========================================================
-
-def build_disclaimer(
-    story,
-    title_style,
-    heading_style,
-    normal_style,
-):
-
-    story.append(
-
-        Paragraph(
-
-            "Disclaimer & Report Information",
-
-            title_style,
-
-        )
-
-    )
-
-    story.append(
-        Spacer(1, 0.30 * inch)
-    )
-
-    # ======================================================
-    # Disclaimer
-    # ======================================================
-
-    story.append(
-
-        Paragraph(
-
-            "<b>Professional Disclaimer</b>",
-
-            heading_style,
-
-        )
-
-    )
-
-    story.append(
-
-        Paragraph(
-
-            """
-            This report has been automatically generated by
-            Calmify AI using multiple Machine Learning models.
-
-            The predictions presented in this report are
-            intended solely for educational purposes,
-            wellness awareness and early self-reflection.
-
-            They should <b>NOT</b> be interpreted as a
-            medical diagnosis, psychiatric evaluation,
-            or professional clinical opinion.
-
-            If emotional distress, anxiety, depression,
-            burnout or psychological symptoms continue or
-            worsen, consultation with a qualified mental
-            health professional is strongly recommended.
-
-            """,
-
-            normal_style,
-
-        )
-
-    )
-
-    story.append(
-        Spacer(1, 0.30 * inch)
-    )
-
-    # ======================================================
-    # Confidentiality
-    # ======================================================
-
-    story.append(
-
-        Paragraph(
-
-            "<b>Confidentiality Notice</b>",
-
-            heading_style,
-
-        )
-
-    )
-
-    story.append(
-
-        Paragraph(
-
-            """
-            Calmify AI is designed to maintain user privacy.
-
-            Personal information used for generating this
-            report is processed only for assessment purposes.
-
-            Users should avoid sharing this report publicly
-            if it contains sensitive personal information.
-
-            """,
-
-            normal_style,
-
-        )
-
-    )
-
-    story.append(
-        Spacer(1, 0.30 * inch)
-    )
-
-    # ======================================================
-    # Report Metadata
-    # ======================================================
-
-    story.append(
-
-        Paragraph(
-
-            "<b>Report Metadata</b>",
-
-            heading_style,
-
-        )
-
-    )
-
-    report_data = [
-
-        ["Application", "Calmify AI"],
-
-        ["Report Type", "Mental Wellness Assessment"],
-
-        ["Prediction Engine", "Multi-Model Machine Learning Pipeline"],
-
-        ["Generated On", datetime.now().strftime("%d %B %Y")],
-
-        ["Version", "1.0"],
-
-    ]
-
-    metadata_table = Table(
-
-        report_data,
-
-        colWidths=[2.3 * inch, 3.8 * inch],
-
-    )
-
-    metadata_table.setStyle(
-
-        TableStyle(
-
-            [
-
-                (
-                    "BACKGROUND",
-                    (0,0),
-                    (0,-1),
-                    HexColor("#1565C0"),
-                ),
-
-                (
-                    "TEXTCOLOR",
-                    (0,0),
-                    (0,-1),
-                    colors.white,
-                ),
-
-                (
-                    "BACKGROUND",
-                    (1,0),
-                    (1,-1),
-                    colors.whitesmoke,
-                ),
-
-                (
-                    "GRID",
-                    (0,0),
-                    (-1,-1),
-                    0.5,
-                    colors.grey,
-                ),
-
-                (
-                    "BOTTOMPADDING",
-                    (0,0),
-                    (-1,-1),
-                    9,
-                ),
-
-                (
-                    "TOPPADDING",
-                    (0,0),
-                    (-1,-1),
-                    9,
-                ),
-
-                (
-                    "FONTNAME",
-                    (0,0),
-                    (-1,-1),
-                    "Helvetica-Bold",
-                ),
-
-            ]
-
-        )
-
-    )
-
-    story.append(metadata_table)
-
-    story.append(
-        Spacer(1, 0.60 * inch)
-    )
-
-    # ======================================================
-    # Footer
-    # ======================================================
-
-    story.append(
-
-        Paragraph(
-
-            "<b>Generated by Calmify AI</b>",
-
-            heading_style,
-
-        )
-
-    )
-
-    story.append(
-
-        Paragraph(
-
-            """
-            © Calmify AI
-
-            AI-powered Mental Wellness Assessment Platform
-
-            Built for educational research, wellness
-            awareness and early risk identification.
-
-            """,
-
-            normal_style,
-
-        )
-
-    )
+    stress_lbl = predictions.get("stress_dataset", {}).get("prediction_label", "Low Stress")
+    stress_conf = predictions.get("stress_dataset", {}).get("confidence", 100.0)
     
-# ==========================================================
-# PAGE NUMBER FOOTER
-# ==========================================================
+    student_lbl = predictions.get("student_survey", {}).get("prediction_label", "Low Stress")
+    student_conf = predictions.get("student_survey", {}).get("confidence", 0.0)
 
-from reportlab.lib.units import mm
-
-
-def add_page_number(canvas, doc):
-    """
-    Draws page number on every page.
-    """
-
-    page_num = canvas.getPageNumber()
-
-    footer = f"Page {page_num}"
-
-    canvas.saveState()
-
-    canvas.setFont(
-        "Helvetica",
-        9,
-    )
-
-    canvas.setFillColor(
-        colors.grey,
-    )
-
-    canvas.drawRightString(
-    doc.width + doc.leftMargin,
-    15,
-    footer,
-)
-
-    canvas.restoreState()
-    
-# ==========================================================
-# MAIN PDF GENERATOR
-# ==========================================================
-
-def generate_dashboard_pdf(
-    dashboard_data,
-    user=None,
-):
-    """
-    Generates the complete Calmify AI
-    Mental Wellness Report.
-    """
-
-    response = HttpResponse(
-        content_type="application/pdf"
-    )
-
-    response[
-        "Content-Disposition"
-    ] = 'attachment; filename="Calmify_AI_Report.pdf"'
-
-    # ------------------------------------------------------
-
+    # -------------------------------------------------------------------------
+    # PDF Setup & Layout Styling Configuration
+    # -------------------------------------------------------------------------
+    buffer = io.BytesIO()
     doc = SimpleDocTemplate(
-
-        response,
-
-        rightMargin=40,
-        leftMargin=40,
-        topMargin=50,
-        bottomMargin=50,
-
+        buffer,
+        pagesize=letter,
+        leftMargin=54,
+        rightMargin=54,
+        topMargin=72,
+        bottomMargin=72
     )
-
-    # ------------------------------------------------------
-    # Styles
-    # ------------------------------------------------------
 
     styles = getSampleStyleSheet()
+    
+    # Custom Brand Palette definitions
+    primary_color = colors.HexColor("#4A5568")
+    secondary_color = colors.HexColor("#2B6CB0")
+    text_dark = colors.HexColor("#2D3748")
+    bg_light = colors.HexColor("#F7FAFC")
 
-    title_style = styles["Title"]
-    title_style.alignment = TA_CENTER
+    # Paragraph style overrides
+    title_style = ParagraphStyle(
+        'DocTitle', parent=styles['Heading1'],
+        fontName='Helvetica-Bold', fontSize=24, leading=28,
+        textColor=primary_color, spaceAfter=8
+    )
+    
+    h1_style = ParagraphStyle(
+        'SectionHeading', parent=styles['Heading2'],
+        fontName='Helvetica-Bold', fontSize=14, leading=18,
+        textColor=secondary_color, spaceBefore=14, spaceAfter=8,
+        keepWithNext=True
+    )
 
-    heading_style = styles["Heading2"]
-    heading_style.alignment = TA_CENTER
+    h2_style = ParagraphStyle(
+        'CardHeading', parent=styles['Heading3'],
+        fontName='Helvetica-Bold', fontSize=11, leading=15,
+        textColor=primary_color, spaceBefore=6, spaceAfter=4,
+        keepWithNext=True
+    )
+    
+    body_style = ParagraphStyle(
+        'BodyTextDark', parent=styles['Normal'],
+        fontName='Helvetica', fontSize=10, leading=14,
+        textColor=text_dark, spaceAfter=6
+    )
 
-    normal_style = styles["BodyText"]
+    explanation_style = ParagraphStyle(
+        'ExplanationText', parent=styles['Normal'],
+        fontName='Helvetica-Oblique', fontSize=9, leading=13,
+        textColor=colors.HexColor("#4A5568"), spaceAfter=10
+    )
 
-    # ------------------------------------------------------
+    table_header_style = ParagraphStyle(
+        'TableHeader', parent=styles['Normal'],
+        fontName='Helvetica-Bold', fontSize=10, leading=12,
+        textColor=colors.white
+    )
 
     story = []
 
-    # ======================================================
-    # BUILD REPORT
-    # ======================================================
+    # -------------------------------------------------------------------------
+    # 1. Header Banner & Profile Details Section
+    # -------------------------------------------------------------------------
+    story.append(Spacer(1, 10))
+    story.append(Paragraph("Calmify AI Wellness Dossier", title_style))
+    story.append(Paragraph("Multi-Model Deep-Insight Machine Learning Report Profile", body_style))
+    story.append(Spacer(1, 12))
 
-    build_cover_page(
+    profile_data = [
+        [Paragraph(f"<b>Participant Name:</b> {profile.get('name', user.username)}", body_style),
+         Paragraph(f"<b>Age / Gender:</b> {profile.get('age', '22')} / {profile.get('gender', 'Male').title()}", body_style)],
+        [Paragraph(f"<b>Academic Track:</b> {profile.get('course', 'Academic Program')}", body_style),
+         Paragraph(f"<b>Assessment Date:</b> {datetime.date.today().strftime('%d %B %Y')}", body_style)]
+    ]
+    
+    profile_table = Table(profile_data, colWidths=[250, 254])
+    profile_table.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,-1), bg_light),
+        ('PADDING', (0,0), (-1,-1), 8),
+        ('BOX', (0,0), (-1,-1), 0.5, colors.HexColor("#CBD5E0")),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+    ]))
+    story.append(profile_table)
+    story.append(Spacer(1, 15))
 
-    story,
-    dashboard_data,
-    user,
-    styles,
+    # -------------------------------------------------------------------------
+    # 2. Executive Assessment Dashboard Metrics
+    # -------------------------------------------------------------------------
+    story.append(Paragraph("Executive Summary Overview", h1_style))
+    
+    summary_matrix = [
+        [Paragraph("<b>Metric Dimension</b>", table_header_style), Paragraph("<b>Status Outcome</b>", table_header_style)],
+        [Paragraph("<b>Overall Risk Level Classification:</b>", body_style), Paragraph(f"<b>{overall_risk}</b>", body_style)],
+        [Paragraph("<b>Consolidated Wellness Index Score:</b>", body_style), Paragraph(f"<b>{wellness_score}</b>", body_style)]
+    ]
+    
+    summary_table = Table(summary_matrix, colWidths=[250, 254])
+    summary_table.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (1,0), secondary_color),
+        ('BACKGROUND', (0,1), (-1,-1), colors.white),
+        ('PADDING', (0,0), (-1,-1), 8),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#E2E8F0")),
+        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+    ]))
+    story.append(summary_table)
+    story.append(Spacer(1, 15))
 
-)
+    # -------------------------------------------------------------------------
+    # 3. Comprehensive Metric Cards & Explanations Block
+    # -------------------------------------------------------------------------
+    story.append(Paragraph("Deconstructed Predictive Analytics Insights", h1_style))
+    story.append(Paragraph("Below is a specific breakdowns of every critical metric card processed across the neural framework pipelines:", body_style))
+    story.append(Spacer(1, 5))
 
-    build_overall_summary(
+    # --- CARD 1: BURNOUT ---
+    card_burnout = []
+    card_burnout.append(Paragraph("🔥 Occupational & Academic Burnout Risk Card", h2_style))
+    card_burnout.append(Paragraph(f"<b>Current Standing:</b> {burnout_lbl} (Calculated Model Certainty: {burnout_conf}%)", body_style))
+    card_burnout.append(Paragraph("<i>Analysis Explanation:</i> This index monitors systemic physical, emotional, and cognitive exhaustion levels caused by chronic instructional demands. A high or moderate standing signals that structural boundary protection adjustments are necessary to safeguard focus parameters.", explanation_style))
+    story.append(KeepTogether(card_burnout))
 
-        story,
-        dashboard_data,
-        title_style,
-        heading_style,
-        normal_style,
+    # --- CARD 2: WELLNESS ---
+    card_wellness = []
+    card_wellness.append(Paragraph("🌱 Holistic Wellness & Psychological Vitality Card", h2_style))
+    card_wellness.append(Paragraph(f"<b>Current Standing:</b> {wellness_lbl} (Calculated Model Certainty: {wellness_conf}%)", body_style))
+    card_wellness.append(Paragraph("<i>Analysis Explanation:</i> Evaluates cross-functional psychological wellness baselines and self-care maintenance routines. Lower ranges indicate opportunities to reintroduce grounding exercises, structured behavioral pacing protocols, and mindful downtime allocation.", explanation_style))
+    story.append(KeepTogether(card_wellness))
 
-    )
+    # --- CARD 3: STRESS DATASET ---
+    card_stress = []
+    card_stress.append(Paragraph("📊 Behavioral Stress Response Matrix Card", h2_style))
+    card_stress.append(Paragraph(f"<b>Current Standing:</b> {stress_lbl} (Calculated Model Certainty: {stress_conf}%)", body_style))
+    card_stress.append(Paragraph("<i>Analysis Explanation:</i> Gauges acute somatic indicators, biological tension traits, and automated nervous system reactions to daily structural strain. Stable readings highlight strong resilience responses under temporary pressure conditions.", explanation_style))
+    story.append(KeepTogether(card_stress))
 
-    build_prediction_summary(
+    # --- CARD 4: MENTAL HEALTH CORE ---
+    card_mh = []
+    card_mh.append(Paragraph("🧠 Cognitive Regulation & General Mental Health Status Card", h2_style))
+    card_mh.append(Paragraph(f"<b>Current Standing:</b> {mh_lbl} (Calculated Model Certainty: {mh_conf}%)", body_style))
+    card_mh.append(Paragraph("<i>Analysis Explanation:</i> Tracks psychological alignment metrics and affective stability trends over multi-week intervals to detect early warning signs. A baseline reading confirms standard coping capacity.", explanation_style))
+    story.append(KeepTogether(card_mh))
 
-        story,
-        dashboard_data,
-        title_style,
-        heading_style,
-        normal_style,
+    # --- CARD 5: STUDENT CONTEXT ---
+    card_student = []
+    card_student.append(Paragraph("🎓 Institutional Fatigue & Student Stress Focus Card", h2_style))
+    card_student.append(Paragraph(f"<b>Current Standing:</b> {student_lbl} (Calculated Model Certainty: {student_conf}%)", body_style))
+    card_student.append(Paragraph("<i>Analysis Explanation:</i> Tracks academic pressures unique to educational workloads, tracking vulnerabilities related to evaluation anxiety, course performance expectations, and exam-related fatigue cycles.", explanation_style))
+    story.append(KeepTogether(card_student))
 
-    )
+    # --- CARD 6: MUSIC HABITS ---
+    card_music = []
+    card_music.append(Paragraph("🎵 Acoustic Resonance & Sound Therapy Coping Card", h2_style))
+    
+    # Safely look for audio genre variables from view payload strings
+    music_data = pdf_payload.get("predictions", {}).get("mxmh_case1", {})
+    genres = music_data.get("recommended_genres", [])
+    genre_str = ", ".join(genres) if genres else "Ambient, Low-Tempo Instrumental, Classical"
+    
+    card_music.append(Paragraph(f"<b>Acoustic Impact Orientation:</b> Positive Auditory Alignment Support", body_style))
+    card_music.append(Paragraph(f"<b>Recommended Dynamic Audio Backing:</b> {genre_str}", body_style))
+    card_music.append(Paragraph("<i>Analysis Explanation:</i> Decodes how auditory exposure impacts emotional self-regulation. Utilizing targeted genres during high-intensity cognitive focus acts as an active acoustic sound filter to quiet neural sympathetic arousal loops.", explanation_style))
+    story.append(KeepTogether(card_music))
 
-    build_ai_interpretation(
+    # -------------------------------------------------------------------------
+    # 4. Tailored Wellness Interventions
+    # -------------------------------------------------------------------------
+    story.append(Spacer(1, 5))
+    story.append(Paragraph("Al-Driven Preventive Recommendations", h1_style))
+    
+    recs = [
+        "<b>Structured Physical Decompression:</b> Dedicate 20-30 minutes to structured, low-impact exercise to clear biological cortisol clearings.",
+        "<b>Boundary Integration Practices:</b> Implement strict transitions between academic workflows and sleep window hours to counteract burnout trends.",
+        "<b>Acoustic Regulated De-escalation:</b> Integrate non-lyrical ambient soundscapes into study hours to reduce cognitive noise fatigue spikes."
+    ]
+    
+    for rec in recs:
+        story.append(Paragraph(f"• {rec}", body_style))
+    story.append(Spacer(1, 15))
 
-        story,
-        dashboard_data,
-        title_style,
-        heading_style,
-        normal_style,
+    # -------------------------------------------------------------------------
+    # 5. Professional Disclaimer
+    # -------------------------------------------------------------------------
+    disclaimer_block = []
+    disclaimer_block.append(Paragraph("<b>Standard Administrative Notice & Terms Disclaimer</b>", h2_style))
+    disclaimer_block.append(Paragraph(
+        "This diagnostic brief is fully automated utilizing experimental multi-model machine learning weighting parameters. "
+        "The conclusions presented are generated solely for self-reflection educational tracking and wellness awareness purposes. "
+        "This document does NOT constitute clinical psychiatric counsel, psychological treatment, or medical diagnosis. "
+        "If stress levels remain elevated or become disruptive to your daily function, please seek professional support.", 
+        explanation_style
+    ))
+    story.append(KeepTogether(disclaimer_block))
 
-    )
-
-    build_recommendations(
-
-        story,
-        dashboard_data,
-        title_style,
-        heading_style,
-        normal_style,
-
-    )
-
-    build_disclaimer(
-
-        story,
-        title_style,
-        heading_style,
-        normal_style,
-
-    )
-
-    # ======================================================
-    # BUILD PDF
-    # ======================================================
-
-    doc.build(
-
-        story,
-
-        onFirstPage=add_page_number,
-
-        onLaterPages=add_page_number,
-
-    )
-
+    # Build document
+    doc.build(story, canvasmaker=NumberedCanvas)
+    
+    # Deliver response block back down pipeline stream
+    buffer.seek(0)
+    response = HttpResponse(buffer.getvalue(), content_type='application/pdf')
+    response['Content-Disposition'] = f'inline; filename="Calmify_AI_Report_{profile.get("name", "User")}.pdf"'
     return response

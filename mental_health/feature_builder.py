@@ -1,1261 +1,1358 @@
+"""
+feature_builder.py
+
+Calmify AI
+---------------------------------------
+
+Responsible for building model-specific feature dictionaries
+for every trained ML model.
+
+Pipeline
+
+Raw Profile + Assessment Answers
+                │
+                ▼
+        FeatureBuilder
+                │
+                ▼
+ Model-wise Feature Dictionaries
+                │
+                ▼
+            ai_model.py
+
+This module DOES NOT:
+
+❌ Load ML models
+❌ Perform predictions
+❌ Scale data
+❌ Encode using sklearn encoders
+
+It ONLY prepares feature dictionaries.
+"""
+
 from __future__ import annotations
 
-import json
-import joblib
-from pathlib import Path
-from typing import Any, Dict, List
-from .model_feature_mapper import MODEL_FILE_MAP
-from .model_feature_mapper import (
+import logging
+from typing import Any, Dict
+
+try:
+    from mental_health.utils import make_json_safe
+except ImportError:
+    from .utils import make_json_safe
+
+logger = logging.getLogger(__name__)
+
+# ==========================================================
+# MODEL KEYS
+# ==========================================================
+
+BURNOUT_MODEL = "burnout"
+
+WELLNESS_MODEL = "wellness"
+
+MENTAL_HEALTH_MODEL = "mental_health_status"
+
+STUDENT_SURVEY_MODEL = "student_survey"
+
+STRESS_DATASET_MODEL = "stress_dataset"
+
+MXMH_CASE1_MODEL = "mxmh_case1"
+
+MXMH_CASE2_MODEL = "mxmh_case2"
+
+TRAINED_MODEL_KEYS = [
+
     BURNOUT_MODEL,
+
     WELLNESS_MODEL,
-    MENTAL_HEALTH_STATUS_MODEL,
+
+    MENTAL_HEALTH_MODEL,
+
     STUDENT_SURVEY_MODEL,
-    MXMH_CASE1_MODEL,
-    MXMH_CASE2_MODEL,
+
     STRESS_DATASET_MODEL,
-)
+
+    MXMH_CASE1_MODEL,
+
+    MXMH_CASE2_MODEL,
+
+]
 
 # ==========================================================
-# PROJECT PATHS
+# DEFAULT VALUES
 # ==========================================================
 
-BASE_DIR = Path(__file__).resolve().parent
+DEFAULT_NUMERIC = 0.0
 
-MODEL_DIR = BASE_DIR / "models"
+DEFAULT_INTEGER = 0
 
-print("=" * 70)
-print("FEATURE BUILDER LOADED")
-print("FILE :", Path(__file__).resolve())
-print("MODEL DIRECTORY :", MODEL_DIR)
-print("=" * 70)
+DEFAULT_STRING = ""
+
+DEFAULT_BOOLEAN = False
 
 # ==========================================================
-# FEATURE COLUMN LOADER
+# GENDER ENCODING
 # ==========================================================
 
-def load_feature_columns(filename: str):
+GENDER_MAP = {
+
+    "male": 0,
+
+    "female": 1,
+
+    "other": 2,
+
+}
+
+# ==========================================================
+# YES / NO ENCODING
+# ==========================================================
+
+YES_NO_MAP = {
+
+    "yes": 1,
+
+    "true": 1,
+
+    "y": 1,
+
+    "1": 1,
+
+    "no": 0,
+
+    "false": 0,
+
+    "n": 0,
+
+    "0": 0,
+
+}
+
+# ==========================================================
+# MUSIC EFFECT ENCODING
+# ==========================================================
+
+MUSIC_EFFECT_MAP = {
+
+    "worsen": 0,
+
+    "no effect": 1,
+
+    "improve": 2,
+
+}
+
+# ==========================================================
+# STRESS LABEL ENCODING
+# ==========================================================
+
+STRESS_LABEL_MAP = {
+
+    "low": 0,
+
+    "moderate": 1,
+
+    "high": 2,
+
+}
+
+# ==========================================================
+# MUSIC GENRE ENCODING
+# (Must stay compatible with MXMH notebooks)
+# ==========================================================
+
+GENRE_MAP = {
+
+    "classical": 0,
+
+    "lofi": 1,
+
+    "pop": 2,
+
+    "rock": 3,
+
+    "hip hop": 4,
+
+    "jazz": 5,
+
+    "electronic": 6,
+
+    "edm": 7,
+
+    "rap": 8,
+
+    "country": 9,
+
+    "metal": 10,
+
+    "folk": 11,
+
+    "blues": 12,
+
+    "r&b": 13,
+
+    "indie": 14,
+
+}
+
+# ==========================================================
+# PUBLIC EXPORTS
+# ==========================================================
+
+__all__ = [
+
+    "FeatureBuilder",
+
+    "build_all_model_inputs",
+
+]
+
+# ==========================================================
+# FEATURE BUILDER
+# ==========================================================
+
+class FeatureBuilder:
     """
-    Loads training feature columns from models folder.
+    Builds model-specific feature dictionaries for every
+    trained Calmify AI model.
 
-    Supports:
-        *.json
-        *.pkl
+    Parameters
+    ----------
+    profile_answers : dict
+        User profile collected during signup.
+
+    assessment_answers : dict
+        Assessment questionnaire responses.
     """
 
-    path = MODEL_DIR / filename
+    def __init__(
+        self,
+        profile_answers: Dict[str, Any],
+        assessment_answers: Dict[str, Any],
+    ) -> None:
 
-    if not path.exists():
+        self.profile = profile_answers or {}
 
-        raise FileNotFoundError(
-            f"\nFeature file not found:\n{path}"
-        )
+        self.assessment = assessment_answers or {}
 
-    if path.suffix.lower() == ".json":
+    # ======================================================
+    # SAFE GETTERS
+    # ======================================================
 
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
+    def _get(
+        self,
+        key: str,
+        default: Any = None,
+    ) -> Any:
+        """
+        Searches assessment first,
+        then profile,
+        otherwise returns default.
+        """
 
-    return joblib.load(path)
+        if key in self.assessment:
+            return self.assessment.get(key)
 
-# ==========================================================
-# MXMH FEATURE LISTS
-# ==========================================================
+        if key in self.profile:
+            return self.profile.get(key)
 
-MXMH_CASE2_COLUMNS = load_feature_columns(
-    "mxmh_case2_feature_columns.json"
-)
+        return default
 
-MXMH_EFFECT_COLUMNS = load_feature_columns(
-    "mxmh_music_effects_features.pkl"
-)
+    def _get_string(
+        self,
+        key: str,
+        default: str = DEFAULT_STRING,
+    ) -> str:
 
-# ==========================================================
-# SAFE HELPERS
-# ==========================================================
+        value = self._get(key, default)
 
-def safe_float(value: Any, default: float = 0.0) -> float:
-
-    try:
-
-        if value in (None, ""):
+        if value is None:
             return default
 
-        return float(value)
+        return str(value).strip()
 
-    except Exception:
+    def _get_lower(
+        self,
+        key: str,
+        default: str = DEFAULT_STRING,
+    ) -> str:
 
-        return default
+        return self._get_string(
+            key,
+            default,
+        ).lower()
 
+    def _get_float(
+        self,
+        key: str,
+        default: float = DEFAULT_NUMERIC,
+    ) -> float:
 
-def safe_int(value: Any, default: int = 0) -> int:
+        value = self._get(key)
 
-    try:
+        try:
+            return float(value)
 
-        if value in (None, ""):
+        except (TypeError, ValueError):
             return default
 
-        return int(float(value))
+    def _get_int(
+        self,
+        key: str,
+        default: int = DEFAULT_INTEGER,
+    ) -> int:
 
-    except Exception:
+        value = self._get(key)
+
+        try:
+            return int(float(value))
+
+        except (TypeError, ValueError):
+            return default
+
+    def _get_bool(
+        self,
+        key: str,
+        default: bool = DEFAULT_BOOLEAN,
+    ) -> bool:
+
+        value = self._get(key)
+
+        if isinstance(value, bool):
+            return value
+
+        value = str(value).strip().lower()
+
+        if value in YES_NO_MAP:
+            return bool(YES_NO_MAP[value])
 
         return default
 
+    # ======================================================
+    # ENCODERS
+    # ======================================================
 
-def safe_str(value: Any, default: str = "") -> str:
+    def _encode_gender(self) -> int:
+        """
+        Encodes gender using GENDER_MAP.
+        """
 
-    if value is None:
+        gender = self._get_lower("gender")
 
-        return default
+        return GENDER_MAP.get(gender, 2)
 
-    value = str(value).strip().lower()
+    def _encode_genre(self) -> int:
+        """
+        Encodes favourite music genre.
+        """
 
-    if value == "":
-
-        return default
-
-    return value
-
-# ==========================================================
-# MATHEMATICAL HELPERS
-# ==========================================================
-
-def mean(values: List[Any]) -> float:
-
-    cleaned = [
-        safe_float(v)
-        for v in values
-    ]
-
-    if len(cleaned) == 0:
-
-        return 0.0
-
-    return sum(cleaned) / len(cleaned)
-
-# ==========================================================
-# GENDER ENCODER
-# ==========================================================
-
-def gender_to_numeric(value: Any) -> int:
-
-    value = safe_str(value)
-
-    if value == "male":
-
-        return 1
-
-    if value == "female":
-
-        return 0
-
-    return 2
-
-# ==========================================================
-# YES / NO ENCODER
-# ==========================================================
-
-def yes_no_to_numeric(value: Any) -> int:
-
-    value = safe_str(value)
-
-    if value in {
-
-        "yes",
-        "true",
-        "1",
-        "y",
-
-    }:
-
-        return 1
-
-    return 0
-
-# ==========================================================
-# UTILITY FUNCTIONS
-# ==========================================================
-
-def compute_music_engagement(data: Dict[str, Any]) -> float:
-    """
-    Overall music engagement score.
-    Sum of all genre listening frequencies.
-    """
-
-    genres = [
-        "classical",
-        "country",
-        "edm",
-        "folk",
-        "gospel",
-        "hip_hop",
-        "jazz",
-        "k_pop",
-        "latin",
-        "lofi",
-        "metal",
-        "pop",
-        "rap",
-        "rnb",
-        "rock",
-        "video_game_music",
-    ]
-
-    total = 0.0
-
-    for genre in genres:
-
-        total += safe_float(
-            data.get(f"freq_{genre}", 0)
+        genre = (
+            self._get_lower("favorite_genre")
+            or self._get_lower("fav_genre")
+            or self._get_lower("music_genre")
         )
 
-    return total
+        return GENRE_MAP.get(genre, 0)
 
+    def _encode_music_effect(self) -> int:
+        """
+        Encodes expected music effect.
+        """
 
-# ----------------------------------------------------------
+        effect = self._get_lower("music_effect")
 
-def compute_calm_score(data: Dict[str, Any]) -> float:
-    """
-    Calm music preference score.
-    """
+        return MUSIC_EFFECT_MAP.get(effect, 1)
 
-    return mean([
+    def _encode_stress_label(self) -> int:
+        """
+        Encodes stress label.
+        """
 
-        safe_float(data.get("freq_classical")),
+        label = self._get_lower("stress_level_label")
 
-        safe_float(data.get("freq_lofi")),
-
-        safe_float(data.get("freq_folk")),
-
-        safe_float(data.get("freq_jazz")),
-
-    ])
-
-
-# ----------------------------------------------------------
-
-def compute_energy_score(data: Dict[str, Any]) -> float:
-    """
-    High-energy music score.
-    """
-
-    return mean([
-
-        safe_float(data.get("freq_edm")),
-
-        safe_float(data.get("freq_rock")),
-
-        safe_float(data.get("freq_metal")),
-
-        safe_float(data.get("freq_rap")),
-
-    ])
-
-
-# ----------------------------------------------------------
-
-def compute_genre_diversity(data: Dict[str, Any]) -> float:
-    """
-    Number of genres actively listened to.
-    """
-
-    genres = [
-
-        "classical",
-        "country",
-        "edm",
-        "folk",
-        "gospel",
-        "hip_hop",
-        "jazz",
-        "k_pop",
-        "latin",
-        "lofi",
-        "metal",
-        "pop",
-        "rap",
-        "rnb",
-        "rock",
-        "video_game_music",
-
-    ]
-
-    diversity = 0
-
-    for genre in genres:
-
-        if safe_float(
-            data.get(f"freq_{genre}", 0)
-        ) > 0:
-
-            diversity += 1
-
-    return diversity
-
-
-# ----------------------------------------------------------
-
-def compute_mental_score(data: Dict[str, Any]) -> float:
-    """
-    Overall mental health score used in MXMH models.
-    """
-
-    return mean([
-
-        safe_float(data.get("anxiety")),
-
-        safe_float(data.get("depression")),
-
-        safe_float(data.get("insomnia")),
-
-        safe_float(data.get("ocd")),
-
-    ])
+        return STRESS_LABEL_MAP.get(label, 1)
     
     
-    # ==========================================================
-# PROFILE FEATURE BUILDER
-# ==========================================================
+        # ======================================================
+    # COMMON DERIVED FEATURES
+    # ======================================================
 
-def build_profile_features(profile: dict) -> dict:
-    """
-    Normalize profile information.
+    def _sleep_balance_score(self) -> float:
+        """
+        Returns a normalized sleep quality score (0–10).
+        """
 
-    This function only cleans user profile.
-    No model-specific engineered features are generated.
-    """
+        sleep_hours = self._get_float("sleep_hours")
 
-    return {
+        if sleep_hours <= 0:
+            return 5.0
 
-        # Identity
-        "name": safe_str(profile.get("name")),
-        "age": safe_int(profile.get("age")),
-        "gender": safe_str(profile.get("gender")),
+        if sleep_hours >= 8:
+            return 10.0
 
-        # Academic
-        "college": safe_str(profile.get("college")),
-        "course": safe_str(profile.get("course")),
-        "branch": safe_str(profile.get("branch")),
-        "semester": safe_int(profile.get("semester")),
+        if sleep_hours >= 7:
+            return 8.5
 
-        "cgpa": safe_float(
-            profile.get(
-                "cgpa",
-                profile.get("gpa", 0),
-            )
-        ),
+        if sleep_hours >= 6:
+            return 7.0
 
-        "gpa": safe_float(
-            profile.get(
-                "gpa",
-                profile.get("cgpa", 0),
-            )
-        ),
+        if sleep_hours >= 5:
+            return 5.0
 
-        # Location
-        "city": safe_str(profile.get("city")),
-        "state": safe_str(profile.get("state")),
-        "country": safe_str(
-            profile.get(
-                "country",
-                "india",
-            )
-        ),
+        return 2.5
 
-        # Lifestyle
-        "relationship_status": safe_str(
-            profile.get("relationship_status")
-        ),
+    def _digital_overload_score(self) -> float:
+        """
+        Screen-time overload score (0–10).
+        Higher = more overload.
+        """
 
-        "residence_type": safe_str(
-            profile.get("residence_type")
-        ),
-
-        "employment_status": safe_str(
-            profile.get(
-                "employment_status",
-                "student",
-            )
-        ),
-    }
-    
-# ==========================================================
-# BURNOUT FEATURE BUILDER
-# ==========================================================
-
-def build_burnout_features(data: dict) -> dict:
-    """
-    Exact Burnout model features (18)
-    """
-
-    study_hours = safe_float(data.get("study_hours"))
-    exam_pressure = safe_float(data.get("exam_pressure"))
-    academic_performance = safe_float(data.get("academic_performance"))
-    anxiety_score = safe_float(data.get("anxiety_score"))
-    depression_score = safe_float(data.get("depression_score"))
-    stress_level = safe_float(data.get("stress_level"))
-    sleep_hours = safe_float(data.get("sleep_hours"))
-    physical_activity = safe_float(data.get("physical_activity"))
-    social_support = safe_float(data.get("social_support"))
-    financial_stress = safe_float(data.get("financial_stress"))
-    family_expectation = safe_float(data.get("family_expectation"))
-
-    academic_load = mean([
-        study_hours,
-        exam_pressure,
-    ])
-
-    external_stress = mean([
-        financial_stress,
-        family_expectation,
-    ])
-
-    mental_health_index = mean([
-        anxiety_score,
-        depression_score,
-        stress_level,
-    ])
-
-    mental_stress_score = mean([
-        anxiety_score,
-        depression_score,
-        exam_pressure,
-    ])
-
-    lifestyle_score = mean([
-        sleep_hours,
-        physical_activity,
-        social_support,
-    ])
-
-    sleep_deficit = max(
-        0,
-        8 - sleep_hours,
-    )
-
-    work_life_imbalance = max(
-        0,
-        study_hours - physical_activity,
-    )
-
-    return {
-
-        "academic_load": academic_load,
-        "academic_performance": academic_performance,
-        "anxiety_score": anxiety_score,
-        "depression_score": depression_score,
-        "exam_pressure": exam_pressure,
-        "external_stress": external_stress,
-        "family_expectation": family_expectation,
-        "financial_stress": financial_stress,
-        "lifestyle_score": lifestyle_score,
-        "mental_health_index": mental_health_index,
-        "mental_stress_score": mental_stress_score,
-        "physical_activity": physical_activity,
-        "sleep_deficit": sleep_deficit,
-        "sleep_hours": sleep_hours,
-        "social_support": social_support,
-        "stress_level": stress_level,
-        "study_hours_per_day": study_hours,
-        "work_life_imbalance": work_life_imbalance,
-    }
-    
-# ==========================================================
-# WELLNESS FEATURE BUILDER
-# ==========================================================
-
-def build_wellness_features(data: dict) -> dict:
-    """
-    Build EXACT features required by wellness_model_final.pkl
-
-    Total Features = 16
-    """
-
-    age = safe_int(data.get("age"))
-    gender = gender_to_numeric(data.get("gender"))
-
-    study_hours = safe_float(data.get("study_hours"))
-    screen_time_hours = safe_float(data.get("screen_time_hours"))
-    sleep_hours = safe_float(data.get("sleep_hours"))
-    stress_level = safe_float(data.get("stress_level"))
-    physical_activity = safe_float(data.get("physical_activity"))
-    caffeine_intake = safe_float(data.get("caffeine_intake"))
-    academic_pressure = safe_float(data.get("academic_pressure"))
-
-    # --------------------------------------------------
-    # Engineered Features
-    # --------------------------------------------------
-
-    sleep_deficit = max(
-        0.0,
-        8.0 - sleep_hours,
-    )
-
-    sleep_balance_score = mean([
-        sleep_hours,
-        physical_activity,
-    ])
-
-    study_load_score = mean([
-        study_hours,
-        academic_pressure,
-    ])
-
-    stress_pressure_score = mean([
-        stress_level,
-        academic_pressure,
-    ])
-
-    caffeine_burden = mean([
-        caffeine_intake,
-        stress_level,
-    ])
-
-    digital_overload_score = mean([
-        screen_time_hours,
-        study_hours,
-    ])
-
-    lifestyle_support_score = mean([
-        physical_activity,
-        sleep_hours,
-    ])
-
-    return {
-
-        "academic_pressure": academic_pressure,
-
-        "age": age,
-
-        "caffeine_burden": caffeine_burden,
-
-        "caffeine_intake": caffeine_intake,
-
-        "digital_overload_score": digital_overload_score,
-
-        "gender": gender,
-
-        "lifestyle_support_score": lifestyle_support_score,
-
-        "physical_activity": physical_activity,
-
-        "screen_time_hours": screen_time_hours,
-
-        "sleep_balance_score": sleep_balance_score,
-
-        "sleep_deficit": sleep_deficit,
-
-        "sleep_hours": sleep_hours,
-
-        "stress_level": stress_level,
-
-        "stress_pressure_score": stress_pressure_score,
-
-        "study_hours": study_hours,
-
-        "study_load_score": study_load_score,
-    }
-    
-# ==========================================================
-# MENTAL HEALTH FEATURE BUILDER
-# ==========================================================
-
-def build_mental_health_features(data: dict) -> dict:
-    """
-    Build EXACT features required by
-    mental_health_status_model_v1.pkl
-
-    Total Features = 23
-    """
-
-    age = safe_int(data.get("age"))
-    gender = gender_to_numeric(data.get("gender"))
-
-    gpa = safe_float(
-        data.get(
-            "gpa",
-            data.get("cgpa"),
-        )
-    )
-
-    anxiety_score = safe_float(data.get("anxiety_score"))
-    depression_score = safe_float(data.get("depression_score"))
-    stress_level = safe_float(data.get("stress_level"))
-    sleep_hours = safe_float(data.get("sleep_hours"))
-    steps_per_day = safe_float(data.get("steps_per_day"))
-
-    mood_description = safe_str(
-        data.get("mood_description")
-    )
-
-    reflection = safe_str(
-        data.get(
-            "reflection_text",
-            data.get("reflection"),
-        )
-    )
-
-    # --------------------------------------------------
-    # Engineered Features
-    # --------------------------------------------------
-
-    sleep_deficit = max(
-        0.0,
-        8.0 - sleep_hours,
-    )
-
-    activity_score = mean([
-        steps_per_day,
-        sleep_hours,
-    ])
-
-    emotional_distress_score = mean([
-        anxiety_score,
-        depression_score,
-        stress_level,
-    ])
-
-    overall_mental_risk_score = mean([
-        emotional_distress_score,
-        sleep_deficit,
-    ])
-
-    gpa_risk = max(
-        0.0,
-        10.0 - gpa,
-    )
-
-    # Placeholder NLP features
-    mood_score = 0.0
-    sentiment_score = 0.0
-    mood_description_encoded = 0
-
-    reflection_char_count = len(reflection)
-
-    reflection_word_count = len(
-        reflection.split()
-    )
-
-    positive_word_count = 0
-    negative_word_count = 0
-    stress_word_count = 0
-    reflection_sentiment_balance = 0.0
-
-    return {
-
-        "activity_score": activity_score,
-
-        "age": age,
-
-        "anxiety_score": anxiety_score,
-
-        "depression_score": depression_score,
-
-        "emotional_distress_score":
-            emotional_distress_score,
-
-        "gender": gender,
-
-        "gpa": gpa,
-
-        "gpa_risk": gpa_risk,
-
-        "mood_description":
-            mood_description,
-
-        "mood_description_encoded":
-            mood_description_encoded,
-
-        "mood_score":
-            mood_score,
-
-        "negative_word_count":
-            negative_word_count,
-
-        "overall_mental_risk_score":
-            overall_mental_risk_score,
-
-        "positive_word_count":
-            positive_word_count,
-
-        "reflection_char_count":
-            reflection_char_count,
-
-        "reflection_sentiment_balance":
-            reflection_sentiment_balance,
-
-        "reflection_word_count":
-            reflection_word_count,
-
-        "sentiment_score":
-            sentiment_score,
-
-        "sleep_deficit":
-            sleep_deficit,
-
-        "sleep_hours":
-            sleep_hours,
-
-        "steps_per_day":
-            steps_per_day,
-
-        "stress_level":
-            stress_level,
-
-        "stress_word_count":
-            stress_word_count,
-    }
-    
-# ==========================================================
-# STUDENT SURVEY FEATURE BUILDER
-# ==========================================================
-
-def build_student_survey_features(data: dict) -> dict:
-    """
-    Build EXACT features required by stress_features.pkl
-
-    Total Features = 20
-    """
-
-    return {
-
-        "academic_performance":
-            safe_float(data.get("academic_performance")),
-
-        "anxiety_level":
-            safe_float(data.get("anxiety_level")),
-
-        "basic_needs":
-            safe_float(data.get("basic_needs")),
-
-        "blood_pressure":
-            safe_float(data.get("blood_pressure")),
-
-        "breathing_problem":
-            safe_float(data.get("breathing_problem")),
-
-        "bullying":
-            safe_float(data.get("bullying")),
-
-        "depression":
-            safe_float(data.get("depression")),
-
-        "extracurricular_activities":
-            safe_float(data.get("extracurricular_activities")),
-
-        "future_career_concerns":
-            safe_float(data.get("future_career_concerns")),
-
-        "headache":
-            safe_float(data.get("headache")),
-
-        "living_conditions":
-            safe_float(data.get("living_conditions")),
-
-        "mental_health_history":
-            safe_float(data.get("mental_health_history")),
-
-        "noise_level":
-            safe_float(data.get("noise_level")),
-
-        "peer_pressure":
-            safe_float(data.get("peer_pressure")),
-
-        "safety":
-            safe_float(data.get("safety")),
-
-        "self_esteem":
-            safe_float(data.get("self_esteem")),
-
-        "sleep_quality":
-            safe_float(data.get("sleep_quality")),
-
-        "social_support":
-            safe_float(data.get("social_support")),
-
-        "study_load":
-            safe_float(data.get("study_load")),
-
-        "teacher_student_relationship":
-            safe_float(data.get("teacher_student_relationship")),
-    }
-    
-# ==========================================================
-# STRESS DATASET FEATURE BUILDER
-# ==========================================================
-
-def build_stress_dataset_features(data: dict) -> dict:
-    """
-    Build EXACT features required by
-    stress_dataset_feature_columns.pkl
-
-    Total Features = 20
-    """
-
-    return {
-
-        "academic_performance":
-            safe_float(data.get("academic_performance")),
-
-        "anxiety_level":
-            safe_float(data.get("anxiety_level")),
-
-        "basic_needs":
-            safe_float(data.get("basic_needs")),
-
-        "blood_pressure":
-            safe_float(data.get("blood_pressure")),
-
-        "breathing_problem":
-            safe_float(data.get("breathing_problem")),
-
-        "bullying":
-            safe_float(data.get("bullying")),
-
-        "depression":
-            safe_float(data.get("depression")),
-
-        "extracurricular_activities":
-            safe_float(data.get("extracurricular_activities")),
-
-        "future_career_concerns":
-            safe_float(data.get("future_career_concerns")),
-
-        "headache":
-            safe_float(data.get("headache")),
-
-        "living_conditions":
-            safe_float(data.get("living_conditions")),
-
-        "mental_health_history":
-            safe_float(data.get("mental_health_history")),
-
-        "noise_level":
-            safe_float(data.get("noise_level")),
-
-        "peer_pressure":
-            safe_float(data.get("peer_pressure")),
-
-        "safety":
-            safe_float(data.get("safety")),
-
-        "self_esteem":
-            safe_float(data.get("self_esteem")),
-
-        "sleep_quality":
-            safe_float(data.get("sleep_quality")),
-
-        "social_support":
-            safe_float(data.get("social_support")),
-
-        "study_load":
-            safe_float(data.get("study_load")),
-
-        "teacher_student_relationship":
-            safe_float(data.get("teacher_student_relationship")),
-    }
-    
-
-# ==========================================================
-# SAFE ONE HOT ENCODER
-# ==========================================================
-
-def _safe_one_hot(
-    feature_dict: dict,
-    prefix: str,
-    value: str,
-) -> None:
-    """
-    Activate one-hot column ONLY if it exists
-    in the saved training feature list.
-    """
-
-    if value is None:
-        return
-
-    value = safe_str(value).strip().lower()
-
-    for column in feature_dict:
-
-        if not column.startswith(prefix + "_"):
-            continue
-
-        suffix = (
-            column
-            .replace(prefix + "_", "")
-            .strip()
-            .lower()
+        screen_time = (
+            self._get_float("screen_time")
+            or self._get_float("screen_time_hours")
+            or self._get_float("internet_usage")
         )
 
-        if suffix == value:
-            feature_dict[column] = 1.0
-            
-# ==========================================================
-# STREAMING SERVICE ENCODER
-# ==========================================================
+        if screen_time <= 0:
+            return 0.0
 
-def encode_streaming_service(
-    feature_dict: dict,
-    streaming_service,
-) -> None:
-    """
-    Streaming Service One-Hot Encoder
-    """
+        return min(screen_time, 10.0)
 
-    _safe_one_hot(
-        feature_dict,
-        "streaming_service",
-        streaming_service,
-    )
-    
-# ==========================================================
-# FAVOURITE GENRE ENCODER
-# ==========================================================
+    def _study_load_score(self) -> float:
+        """
+        Combines study hours and exam pressure.
+        """
 
-def encode_favourite_genre(
-    feature_dict: dict,
-    genre,
-) -> None:
-    """
-    Favourite Genre One-Hot Encoder
-    """
+        study_hours = self._get_float("study_hours_per_day")
+        exam_pressure = self._get_float("exam_pressure")
 
-    _safe_one_hot(
-        feature_dict,
-        "fav_genre",
-        genre,
-    )
-    
-# ==========================================================
-# BPM BAND ENCODER
-# ==========================================================
-
-def encode_bpm_band(
-    feature_dict: dict,
-    bpm,
-) -> None:
-
-    bpm = safe_float(bpm)
-
-    if bpm < 80:
-        band = "low"
-
-    elif bpm < 110:
-        band = "medium"
-
-    elif bpm < 140:
-        band = "high"
-
-    else:
-        band = "very_high"
-
-    _safe_one_hot(
-        feature_dict,
-        "bpm_band",
-        band,
-    )
-    
-# ==========================================================
-# LISTENING BAND ENCODER
-# ==========================================================
-
-def encode_listening_band(
-    feature_dict: dict,
-    hours,
-) -> None:
-
-    hours = safe_float(hours)
-
-    if hours <= 2:
-        band = "low"
-
-    elif hours <= 5:
-        band = "moderate"
-
-    else:
-        band = "high"
-
-    _safe_one_hot(
-        feature_dict,
-        "listening_band",
-        band,
-    )
-    
-# ==========================================================
-# MENTAL HEALTH BAND ENCODER
-# ==========================================================
-
-def encode_mental_health_band(
-    feature_dict: dict,
-    score,
-) -> None:
-
-    score = safe_float(score)
-
-    if score < 3:
-        band = "low"
-
-    elif score < 7:
-        band = "moderate"
-
-    else:
-        band = "high"
-
-    _safe_one_hot(
-        feature_dict,
-        "mental_health_band",
-        band,
-    )
-    
-# ==========================================================
-# ENCODE LISTENING BAND
-# ==========================================================
-
-def encode_listening_band(
-    feature_dict: dict,
-    hours: float,
-) -> None:
-    """
-    Listening duration bands.
-    """
-
-    hours = safe_float(hours)
-
-    if hours <= 2:
-        band = "low_listener"
-
-    elif hours <= 5:
-        band = "moderate_listener"
-
-    else:
-        band = "heavy_listener"
-
-    _safe_one_hot(
-        feature_dict,
-        "listening_band",
-        band,
-    )
-    
-# ==========================================================
-# MXMH CASE 2 FEATURE BUILDER
-# ==========================================================
-
-def build_mxmh_case2_features(data: dict) -> dict:
-    """
-    Build EXACT features required by
-
-    mxmh_case2_feature_columns.json
-
-    Returns aligned feature dictionary.
-    """
-
-    # --------------------------------------------------
-    # Initialize ALL training features
-    # --------------------------------------------------
-
-    features = {
-        column: 0.0
-        for column in MXMH_CASE2_COLUMNS
-    }
-
-    # --------------------------------------------------
-    # Basic Numeric Features
-    # --------------------------------------------------
-
-    numeric_fields = [
-
-        "age",
-        "hours_per_day",
-        "bpm",
-        "anxiety",
-        "depression",
-        "insomnia",
-        "ocd",
-
-    ]
-
-    for field in numeric_fields:
-
-        if field in features:
-
-            features[field] = safe_float(
-                data.get(field)
-            )
-
-    # --------------------------------------------------
-    # Binary Features
-    # --------------------------------------------------
-
-    binary_fields = [
-
-        "while_working",
-        "instrumentalist",
-        "composer",
-        "exploratory",
-        "foreign_languages",
-
-    ]
-
-    for field in binary_fields:
-
-        if field in features:
-
-            features[field] = yes_no_to_numeric(
-                data.get(field)
-            )
-
-    # --------------------------------------------------
-    # Genre Frequency Features
-    # --------------------------------------------------
-
-    genres = [
-
-        "classical",
-        "country",
-        "edm",
-        "folk",
-        "gospel",
-        "hip_hop",
-        "jazz",
-        "k_pop",
-        "latin",
-        "lofi",
-        "metal",
-        "pop",
-        "rap",
-        "rnb",
-        "rock",
-        "video_game_music",
-
-    ]
-
-    for genre in genres:
-
-        column = f"freq_{genre}"
-
-        if column in features:
-
-            features[column] = safe_float(
-                data.get(column)
-            )
-
-    # --------------------------------------------------
-    # Engineered Scores
-    # --------------------------------------------------
-
-    if "music_engagement_score" in features:
-
-        features["music_engagement_score"] = (
-            compute_music_engagement(data)
+        return round(
+            (study_hours * 0.4) +
+            (exam_pressure * 0.6),
+            2,
         )
 
-    if "genre_diversity_score" in features:
+    def _stress_pressure_score(self) -> float:
+        """
+        Overall perceived stress score.
+        """
 
-        features["genre_diversity_score"] = (
-            compute_genre_diversity(data)
+        stress = self._get_float("stress_level")
+        anxiety = self._get_float("anxiety_score")
+        depression = self._get_float("depression_score")
+
+        values = [stress, anxiety, depression]
+
+        values = [v for v in values if v > 0]
+
+        if not values:
+            return 0.0
+
+        return round(sum(values) / len(values), 2)
+
+    def _lifestyle_support_score(self) -> float:
+        """
+        Lifestyle quality score.
+
+        Higher = healthier lifestyle.
+        """
+
+        physical = self._get_float("physical_activity")
+        social = self._get_float("social_support")
+
+        sleep = self._sleep_balance_score()
+
+        return round(
+            (physical + social + sleep) / 3,
+            2,
         )
 
-    if "calm_music_score" in features:
+    def _sleep_deficit(self) -> float:
+        """
+        Hours below ideal sleep (8h).
+        """
 
-        features["calm_music_score"] = (
-            compute_calm_score(data)
+        sleep = self._get_float("sleep_hours")
+
+        if sleep <= 0:
+            return 0.0
+
+        return max(0.0, 8.0 - sleep)
+
+    def _caffeine_burden(self) -> float:
+        """
+        Estimates caffeine burden.
+
+        Accepts either:
+            caffeine
+            caffeine_intake
+            coffee_per_day
+        """
+
+        caffeine = (
+            self._get_float("caffeine")
+            or self._get_float("caffeine_intake")
+            or self._get_float("coffee_per_day")
         )
 
-    if "high_energy_score" in features:
+        return min(caffeine, 10.0)
 
-        features["high_energy_score"] = (
-            compute_energy_score(data)
+    def _overall_wellness_index(self) -> float:
+        """
+        Composite wellness indicator.
+
+        Combines:
+
+        • Sleep
+        • Lifestyle
+        • Stress
+
+        Higher = healthier.
+        """
+
+        sleep = self._sleep_balance_score()
+
+        lifestyle = self._lifestyle_support_score()
+
+        stress = self._stress_pressure_score()
+
+        wellness = (
+            (sleep * 0.35)
+            + (lifestyle * 0.40)
+            + ((10 - stress) * 0.25)
         )
 
-    if "mental_health_score" in features:
-
-        features["mental_health_score"] = (
-            compute_mental_score(data)
+        return round(
+            max(0.0, min(10.0, wellness)),
+            2,
         )
+        
+        
+            # ============================================================
+    # Burnout Regression Features
+    # ============================================================
 
-    # --------------------------------------------------
-    # One Hot Encoding
-    # --------------------------------------------------
+    def build_burnout_features(self) -> Dict[str, Any]:
+        """
+        Build feature dictionary for the Burnout Regression model.
 
-    encode_streaming_service(
+        Returns
+        -------
+        Dict[str, Any]
+            Feature dictionary aligned with burnout_feature_columns.pkl
+        """
 
-        features,
+        features = {
 
-        data.get(
-            "primary_streaming_service"
-        ),
+            # --------------------------------------------------
+            # Academic / Workload
+            # --------------------------------------------------
 
+            "study_hours_per_day":
+                self._get_float("study_hours_per_day"),
+
+            "exam_pressure":
+                self._get_float("exam_pressure"),
+
+            "academic_workload":
+                self._study_load_score(),
+
+            "stress_level":
+                self._get_float("stress_level"),
+
+            "stress_pressure":
+                self._stress_pressure_score(),
+
+            # --------------------------------------------------
+            # Lifestyle
+            # --------------------------------------------------
+
+            "sleep_hours":
+                self._get_float("sleep_hours"),
+
+            "sleep_balance":
+                self._sleep_balance_score(),
+
+            "sleep_deficit":
+                self._sleep_deficit(),
+
+            "screen_time":
+                self._get_float("screen_time"),
+
+            "digital_overload":
+                self._digital_overload_score(),
+
+            "physical_activity":
+                self._get_float("physical_activity"),
+
+            "lifestyle_support":
+                self._lifestyle_support_score(),
+
+            "social_support":
+                self._get_float("social_support"),
+
+            # --------------------------------------------------
+            # Emotional Indicators
+            # --------------------------------------------------
+
+            "anxiety_score":
+                self._get_float("anxiety_score"),
+
+            "depression_score":
+                self._get_float("depression_score"),
+
+            "mental_fatigue":
+                self._get_float("mental_fatigue"),
+
+            "motivation_level":
+                self._get_float("motivation_level"),
+
+            # --------------------------------------------------
+            # Behaviour
+            # --------------------------------------------------
+
+            "internet_usage":
+                self._get_float("internet_usage"),
+
+            "caffeine_intake":
+                self._get_float("caffeine_intake"),
+
+            "caffeine_burden":
+                self._caffeine_burden(),
+
+            # --------------------------------------------------
+            # Profile
+            # --------------------------------------------------
+
+            "age":
+                self._get_int("age"),
+
+            "gender":
+                self._encode_gender(),
+
+            "academic_year":
+                self._get_int("academic_year"),
+
+            # --------------------------------------------------
+            # Derived Wellness
+            # --------------------------------------------------
+
+            "overall_wellness_index":
+                self._overall_wellness_index(),
+        }
+
+        return make_json_safe(features)
+    
+        # ============================================================
+    # Wellness Regression Features
+    # ============================================================
+
+    def build_wellness_features(self) -> Dict[str, Any]:
+        """
+        Build feature dictionary for the Wellness Regression model.
+
+        Returns
+        -------
+        Dict[str, Any]
+            Feature dictionary aligned with wellness_feature_columns.pkl
+        """
+
+        features = {
+
+            # --------------------------------------------------
+            # Lifestyle
+            # --------------------------------------------------
+
+            "sleep_hours":
+                self._get_float("sleep_hours"),
+
+            "sleep_balance":
+                self._sleep_balance_score(),
+
+            "sleep_deficit":
+                self._sleep_deficit(),
+
+            "physical_activity":
+                self._get_float("physical_activity"),
+
+            "social_support":
+                self._get_float("social_support"),
+
+            "lifestyle_support":
+                self._lifestyle_support_score(),
+
+            "overall_wellness_index":
+                self._overall_wellness_index(),
+
+            # --------------------------------------------------
+            # Mental State
+            # --------------------------------------------------
+
+            "stress_level":
+                self._get_float("stress_level"),
+
+            "stress_pressure":
+                self._stress_pressure_score(),
+
+            "anxiety_score":
+                self._get_float("anxiety_score"),
+
+            "depression_score":
+                self._get_float("depression_score"),
+
+            "motivation_level":
+                self._get_float("motivation_level"),
+
+            "mental_fatigue":
+                self._get_float("mental_fatigue"),
+
+            # --------------------------------------------------
+            # Academic Balance
+            # --------------------------------------------------
+
+            "study_hours_per_day":
+                self._get_float("study_hours_per_day"),
+
+            "exam_pressure":
+                self._get_float("exam_pressure"),
+
+            "academic_workload":
+                self._study_load_score(),
+
+            # --------------------------------------------------
+            # Digital Behaviour
+            # --------------------------------------------------
+
+            "screen_time":
+                self._get_float("screen_time"),
+
+            "digital_overload":
+                self._digital_overload_score(),
+
+            "internet_usage":
+                self._get_float("internet_usage"),
+
+            # --------------------------------------------------
+            # Nutrition / Stimulants
+            # --------------------------------------------------
+
+            "caffeine_intake":
+                self._get_float("caffeine_intake"),
+
+            "caffeine_burden":
+                self._caffeine_burden(),
+
+            # --------------------------------------------------
+            # Profile
+            # --------------------------------------------------
+
+            "age":
+                self._get_int("age"),
+
+            "gender":
+                self._encode_gender(),
+
+            "academic_year":
+                self._get_int("academic_year"),
+        }
+
+        return make_json_safe(features)
+    
+        # ============================================================
+    # Mental Health Status Classification Features
+    # ============================================================
+
+    def build_mental_health_features(self) -> Dict[str, Any]:
+        """
+        Build feature dictionary for the Mental Health Status
+        classification model.
+
+        Returns
+        -------
+        Dict[str, Any]
+            Feature dictionary aligned with
+            mental_health_feature_columns.pkl
+        """
+
+        features = {
+
+            # --------------------------------------------------
+            # Demographics
+            # --------------------------------------------------
+
+            "age":
+                self._get_int("age"),
+
+            "gender":
+                self._encode_gender(),
+
+            "academic_year":
+                self._get_int("academic_year"),
+
+            # --------------------------------------------------
+            # Academic
+            # --------------------------------------------------
+
+            "study_hours_per_day":
+                self._get_float("study_hours_per_day"),
+
+            "exam_pressure":
+                self._get_float("exam_pressure"),
+
+            "academic_workload":
+                self._study_load_score(),
+
+            # --------------------------------------------------
+            # Mental State
+            # --------------------------------------------------
+
+            "stress_level":
+                self._get_float("stress_level"),
+
+            "stress_pressure":
+                self._stress_pressure_score(),
+
+            "anxiety_score":
+                self._get_float("anxiety_score"),
+
+            "depression_score":
+                self._get_float("depression_score"),
+
+            "mental_fatigue":
+                self._get_float("mental_fatigue"),
+
+            "motivation_level":
+                self._get_float("motivation_level"),
+
+            # --------------------------------------------------
+            # Lifestyle
+            # --------------------------------------------------
+
+            "sleep_hours":
+                self._get_float("sleep_hours"),
+
+            "sleep_balance":
+                self._sleep_balance_score(),
+
+            "sleep_deficit":
+                self._sleep_deficit(),
+
+            "physical_activity":
+                self._get_float("physical_activity"),
+
+            "social_support":
+                self._get_float("social_support"),
+
+            "lifestyle_support":
+                self._lifestyle_support_score(),
+
+            "overall_wellness_index":
+                self._overall_wellness_index(),
+
+            # --------------------------------------------------
+            # Digital Behaviour
+            # --------------------------------------------------
+
+            "screen_time":
+                self._get_float("screen_time"),
+
+            "digital_overload":
+                self._digital_overload_score(),
+
+            "internet_usage":
+                self._get_float("internet_usage"),
+
+            # --------------------------------------------------
+            # Stimulants
+            # --------------------------------------------------
+
+            "caffeine_intake":
+                self._get_float("caffeine_intake"),
+
+            "caffeine_burden":
+                self._caffeine_burden(),
+        }
+
+        return make_json_safe(features)
+    
+        # ============================================================
+    # Student Mental Health Survey Classification Features
+    # ============================================================
+
+    def build_student_survey_features(self) -> Dict[str, Any]:
+        """
+        Build feature dictionary for the Student Mental Health
+        Survey classifier.
+
+        Returns
+        -------
+        Dict[str, Any]
+            Feature dictionary aligned with
+            student_survey_feature_columns.pkl
+        """
+
+        features = {
+
+            # --------------------------------------------------
+            # Demographics
+            # --------------------------------------------------
+
+            "age":
+                self._get_int("age"),
+
+            "gender":
+                self._encode_gender(),
+
+            "academic_year":
+                self._get_int("academic_year"),
+
+            # --------------------------------------------------
+            # Academic
+            # --------------------------------------------------
+
+            "study_hours_per_day":
+                self._get_float("study_hours_per_day"),
+
+            "exam_pressure":
+                self._get_float("exam_pressure"),
+
+            "academic_workload":
+                self._study_load_score(),
+
+            "academic_performance":
+                self._get_float("academic_performance"),
+
+            # --------------------------------------------------
+            # Emotional Health
+            # --------------------------------------------------
+
+            "stress_level":
+                self._get_float("stress_level"),
+
+            "stress_pressure":
+                self._stress_pressure_score(),
+
+            "anxiety_score":
+                self._get_float("anxiety_score"),
+
+            "depression_score":
+                self._get_float("depression_score"),
+
+            "mental_fatigue":
+                self._get_float("mental_fatigue"),
+
+            "motivation_level":
+                self._get_float("motivation_level"),
+
+            # --------------------------------------------------
+            # Lifestyle
+            # --------------------------------------------------
+
+            "sleep_hours":
+                self._get_float("sleep_hours"),
+
+            "sleep_balance":
+                self._sleep_balance_score(),
+
+            "sleep_deficit":
+                self._sleep_deficit(),
+
+            "physical_activity":
+                self._get_float("physical_activity"),
+
+            "social_support":
+                self._get_float("social_support"),
+
+            "lifestyle_support":
+                self._lifestyle_support_score(),
+
+            "overall_wellness_index":
+                self._overall_wellness_index(),
+
+            # --------------------------------------------------
+            # Digital Behaviour
+            # --------------------------------------------------
+
+            "screen_time":
+                self._get_float("screen_time"),
+
+            "digital_overload":
+                self._digital_overload_score(),
+
+            "internet_usage":
+                self._get_float("internet_usage"),
+
+            # --------------------------------------------------
+            # Family / Financial
+            # --------------------------------------------------
+
+            "family_expectation":
+                self._get_float("family_expectation"),
+
+            "financial_stress":
+                self._get_float("financial_stress"),
+
+            # --------------------------------------------------
+            # Stimulants
+            # --------------------------------------------------
+
+            "caffeine_intake":
+                self._get_float("caffeine_intake"),
+
+            "caffeine_burden":
+                self._caffeine_burden(),
+        }
+
+        return make_json_safe(features)
+    
+        # ============================================================
+    # Stress Dataset Classification Features
+    # ============================================================
+
+    def build_stress_dataset_features(self) -> Dict[str, Any]:
+        """
+        Build feature dictionary for the Stress Level Dataset
+        classification model.
+
+        Returns
+        -------
+        Dict[str, Any]
+            Feature dictionary aligned with
+            stress_dataset_feature_columns.pkl
+        """
+
+        features = {
+
+            # --------------------------------------------------
+            # Demographics
+            # --------------------------------------------------
+
+            "age":
+                self._get_int("age"),
+
+            "gender":
+                self._encode_gender(),
+
+            # --------------------------------------------------
+            # Core Stress Indicators
+            # --------------------------------------------------
+
+            "stress_level":
+                self._get_float("stress_level"),
+
+            "stress_pressure":
+                self._stress_pressure_score(),
+
+            "recent_stress":
+                self._get_float("recent_stress"),
+
+            # --------------------------------------------------
+            # Emotional Indicators
+            # --------------------------------------------------
+
+            "anxiety_score":
+                self._get_float("anxiety_score"),
+
+            "depression_score":
+                self._get_float("depression_score"),
+
+            "sadness":
+                self._get_float("sadness"),
+
+            "irritability":
+                self._get_float("irritability"),
+
+            "loneliness":
+                self._get_float("loneliness"),
+
+            "confidence_issues":
+                self._get_float("confidence_issues"),
+
+            "concentration_issues":
+                self._get_float("concentration_issues"),
+
+            # --------------------------------------------------
+            # Physiological Symptoms
+            # --------------------------------------------------
+
+            "rapid_heartbeat":
+                self._get_float("rapid_heartbeat"),
+
+            "headaches":
+                self._get_float("headaches"),
+
+            "mental_fatigue":
+                self._get_float("mental_fatigue"),
+
+            # --------------------------------------------------
+            # Lifestyle
+            # --------------------------------------------------
+
+            "sleep_hours":
+                self._get_float("sleep_hours"),
+
+            "sleep_balance":
+                self._sleep_balance_score(),
+
+            "sleep_deficit":
+                self._sleep_deficit(),
+
+            "physical_activity":
+                self._get_float("physical_activity"),
+
+            "social_support":
+                self._get_float("social_support"),
+
+            "lifestyle_support":
+                self._lifestyle_support_score(),
+
+            "overall_wellness_index":
+                self._overall_wellness_index(),
+
+            # --------------------------------------------------
+            # Academic
+            # --------------------------------------------------
+
+            "study_hours_per_day":
+                self._get_float("study_hours_per_day"),
+
+            "exam_pressure":
+                self._get_float("exam_pressure"),
+
+            "academic_overwhelm":
+                self._get_float("academic_overwhelm"),
+
+            "academic_workload":
+                self._study_load_score(),
+
+            # --------------------------------------------------
+            # Behaviour
+            # --------------------------------------------------
+
+            "screen_time":
+                self._get_float("screen_time"),
+
+            "digital_overload":
+                self._digital_overload_score(),
+
+            "internet_usage":
+                self._get_float("internet_usage"),
+
+            "leisure_difficulty":
+                self._get_float("leisure_difficulty"),
+
+            # --------------------------------------------------
+            # Stimulants
+            # --------------------------------------------------
+
+            "caffeine_intake":
+                self._get_float("caffeine_intake"),
+
+            "caffeine_burden":
+                self._caffeine_burden(),
+        }
+
+        return make_json_safe(features)
+    
+        # ============================================================
+    # MXMH (Music x Mental Health) Features
+    # ============================================================
+
+    def build_mxmh_features(self) -> Dict[str, Any]:
+        """
+        Build feature dictionary for both:
+
+        • MXMH Case 1 (Genre Recommendation)
+        • MXMH Case 2 (Music Effect Prediction)
+
+        Returns
+        -------
+        Dict[str, Any]
+            Feature dictionary aligned with
+            mxmh_case1_feature_columns.pkl
+            mxmh_case2_feature_columns.pkl
+        """
+
+        features = {
+
+            # --------------------------------------------------
+            # Demographics
+            # --------------------------------------------------
+
+            "age":
+                self._get_int("age"),
+
+            "gender":
+                self._encode_gender(),
+
+            # --------------------------------------------------
+            # Music Behaviour
+            # --------------------------------------------------
+
+            "favorite_genre":
+                self._encode_genre(),
+
+            "hours_per_day":
+                self._get_float("hours_per_day"),
+
+            "while_working":
+                self._get_bool("while_working"),
+
+            "exploratory":
+                self._get_bool("exploratory"),
+
+            "foreign_languages":
+                self._get_bool("foreign_languages"),
+
+            "instrumentalist":
+                self._get_bool("instrumentalist"),
+
+            "composer":
+                self._get_bool("composer"),
+
+            # --------------------------------------------------
+            # Mental Health Scores
+            # --------------------------------------------------
+
+            "anxiety_score":
+                self._get_float("anxiety_score"),
+
+            "depression_score":
+                self._get_float("depression_score"),
+
+            "stress_level":
+                self._get_float("stress_level"),
+
+            "stress_pressure":
+                self._stress_pressure_score(),
+
+            # --------------------------------------------------
+            # Sleep
+            # --------------------------------------------------
+
+            "sleep_hours":
+                self._get_float("sleep_hours"),
+
+            "sleep_balance":
+                self._sleep_balance_score(),
+
+            "sleep_deficit":
+                self._sleep_deficit(),
+
+            "insomnia":
+                self._get_float("insomnia"),
+
+            # --------------------------------------------------
+            # Mental Conditions
+            # --------------------------------------------------
+
+            "ocd":
+                self._get_float("ocd"),
+
+            "mental_fatigue":
+                self._get_float("mental_fatigue"),
+
+            "motivation_level":
+                self._get_float("motivation_level"),
+
+            # --------------------------------------------------
+            # Lifestyle
+            # --------------------------------------------------
+
+            "physical_activity":
+                self._get_float("physical_activity"),
+
+            "social_support":
+                self._get_float("social_support"),
+
+            "overall_wellness_index":
+                self._overall_wellness_index(),
+
+            # --------------------------------------------------
+            # Digital Behaviour
+            # --------------------------------------------------
+
+            "screen_time":
+                self._get_float("screen_time"),
+
+            "digital_overload":
+                self._digital_overload_score(),
+
+            # --------------------------------------------------
+            # Academic
+            # --------------------------------------------------
+
+            "study_hours_per_day":
+                self._get_float("study_hours_per_day"),
+
+            "exam_pressure":
+                self._get_float("exam_pressure"),
+
+            "academic_workload":
+                self._study_load_score(),
+        }
+
+        return make_json_safe(features)
+    
+        # ============================================================
+    # Public API
+    # ============================================================
+
+    def build_all_model_inputs(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Build feature dictionaries for every ML model.
+
+        This is the only public method that ai_model.py should use.
+
+        Returns
+        -------
+        Dict[str, Dict[str, Any]]
+        """
+
+        model_inputs = {
+
+            BURNOUT_MODEL:
+                self.build_burnout_features(),
+
+            WELLNESS_MODEL:
+                self.build_wellness_features(),
+
+            MENTAL_HEALTH_MODEL:
+                self.build_mental_health_features(),
+
+            STUDENT_SURVEY_MODEL:
+                self.build_student_survey_features(),
+
+            STRESS_DATASET_MODEL:
+                self.build_stress_dataset_features(),
+
+            MXMH_CASE1_MODEL:
+                self.build_mxmh_features(),
+
+            MXMH_CASE2_MODEL:
+                self.build_mxmh_features(),
+        }
+
+        return make_json_safe(model_inputs)
+    
+    # ============================================================
+# Singleton
+# ============================================================
+
+# feature_builder = FeatureBuilder()
+
+
+# ============================================================
+# Public Function
+# ============================================================
+
+def build_all_model_inputs(
+    profile_answers,
+    assessment_answers,
+):
+    builder = FeatureBuilder(
+        profile_answers=profile_answers,
+        assessment_answers=assessment_answers,
     )
 
-    encode_favourite_genre(
-
-        features,
-
-        data.get(
-            "fav_genre"
-        ),
-
-    )
-
-    encode_bpm_band(
-
-        features,
-
-        data.get(
-            "bpm"
-        ),
-
-    )
-
-    encode_listening_band(
-
-        features,
-
-        data.get(
-            "hours_per_day"
-        ),
-
-    )
-
-    encode_mental_health_band(
-
-        features,
-
-        compute_mental_score(data),
-
-    )
-
-    return features
-
-# ==========================================================
-# BUILD ALL MODEL INPUTS
-# ==========================================================
-
-def build_all_model_inputs(user_data: dict) -> dict:
-    """
-    Build raw feature dictionaries for every model.
-
-    Feature alignment is handled later inside
-    AIModelService._align_features().
-    """
-
-    return {
-
-        BURNOUT_MODEL:
-            build_burnout_features(user_data),
-
-        WELLNESS_MODEL:
-            build_wellness_features(user_data),
-
-        MENTAL_HEALTH_STATUS_MODEL:
-            build_mental_health_features(user_data),
-
-        STUDENT_SURVEY_MODEL:
-            build_student_survey_features(user_data),
-
-        STRESS_DATASET_MODEL:
-            build_stress_dataset_features(user_data),
-
-        MXMH_CASE2_MODEL:
-            build_mxmh_case2_features(user_data),
-
-    }
+    return builder.build_all_model_inputs()

@@ -1,1368 +1,956 @@
+/* ==========================================================================
+   Calmify AI
+   assessment.js
+
+   Module 1
+   --------------------------------------------------------------------------
+   Configuration / Constants / Global State
+   ========================================================================= */
+
 "use strict";
 
-/* ==========================================================
-   Calmify AI Assessment
-   Phase 1
-   Initialization
-========================================================== */
+const APP = Object.freeze({
+    NAME: "Calmify AI",
+    VERSION: "2.0.0",
+    DEBUG: true,
+    AUTO_SAVE_INTERVAL: 30000,
+    MAX_TEXTAREA_LENGTH: 5000,
+    PROGRESS_STEPS: 3
+});
 
-/* ==========================================================
-   DOM References
-========================================================== */
+const API = Object.freeze({
+    QUESTIONS: "/api/assessment/questions/",
+    SUBMIT: "/api/assessment/submit/"
+});
 
-const form = document.getElementById("assessmentForm");
+const STEP = Object.freeze({
+    PROFILE: 1,
+    LIFESTYLE: 2,
+    MENTAL_HEALTH: 3,
+    TOTAL: 3
+});
 
-const loader = document.getElementById("loader");
+const SECTION_MAP = Object.freeze({
+    PROFILE: [],
+    LIFESTYLE: [
+        "daily_wellness",
+        "stress_burnout"
+    ],
+    MENTAL_HEALTH: [
+        "mental_health_core",
+        "student_context",
+        "music_habits",
+        "music_frequency_matrix",
+        "music_effects_section",
+        "detailed_stress_symptoms"
+    ]
+});
 
-const resultCard = document.getElementById("resultCard");
+const VALIDATION = Object.freeze({
+    REQUIRED_CLASS: "field-required",
+    INVALID_CLASS: "field-invalid",
+    ERROR_CLASS: "validation-error"
+});
 
-const progressBar = document.getElementById("progressBar");
+const STORAGE = Object.freeze({
+    DRAFT: "calmify_assessment_draft",
+    PROFILE: "calmify_profile"
+});
 
-const step2Container =
-    document.getElementById("step2Questions");
+const MESSAGE = Object.freeze({
+    LOADING: "Loading assessment...",
+    LOAD_ERROR: "Unable to load assessment.",
+    SAVED: "Draft saved.",
+    SUBMITTING: "Submitting assessment...",
+    SUCCESS: "Assessment completed successfully.",
+    VALIDATION: "Please complete all required questions."
+});
 
-const step3Container =
-    document.getElementById("step3Questions");
+const STATE = {
+    initialized: false,
+    loading: false,
+    submitting: false,
+    savingDraft: false,
+    currentStep: STEP.PROFILE,
+    currentSectionIndex: 0,
+    profileQuestions: [],
+    assessmentSections: [],
+    lifestyleSections: [],
+    mentalHealthSections: [],
+    profileAnswers: {},
+    assessmentAnswers: {},
+    validationErrors: {},
+    questionIndex: {},
+    sectionsById: {},
+    totalQuestions: 0,
+    answeredQuestions: 0,
+    dashboard: null,
+    draftLoaded: false,
+    lastAutoSave: null
+};
 
-const stepPills =
-    document.querySelectorAll(".step-pill");
-
-
-/* ==========================================================
-   API Endpoints
-========================================================== */
-
-const QUESTIONS_API =
-    "/api/assessment/questions/";
-
-const SUBMIT_API =
-    "/api/assessment/submit/";
-
-
-/* ==========================================================
-   Global State
-========================================================== */
-
-let currentStep = 1;
-
-let loading = false;
-
-let totalQuestions = 0;
-
-let profileQuestions = [];
-
-let assessmentSections = [];
-
-let responses = {};
-
-
-/* ==========================================================
-   Initialisation
-========================================================== */
-
-document.addEventListener(
-
-    "DOMContentLoaded",
-
-    initialiseAssessment
-
-);
-
-async function initialiseAssessment() {
-
-    try {
-
-        showLoader("Loading assessment...");
-
-        initialiseNavigation();
-
-        await loadQuestions();
-
-        restoreDraft();
-
-        updateProgress();
-
+const Logger = {
+    log(...args) {
+        if (!APP.DEBUG) return;
+        console.log("[Calmify]", ...args);
+    },
+    warn(...args) {
+        if (!APP.DEBUG) return;
+        console.warn("[Calmify]", ...args);
+    },
+    error(...args) {
+        console.error("[Calmify]", ...args);
     }
+};
 
-    catch (error) {
+/* ==========================================================================
+   Module 2
+   --------------------------------------------------------------------------
+   DOM Cache / Initialization Loader
+   ========================================================================== */
 
-    console.error(error);
+const DOM = {
+    form: null,
+    container: null,
+    assessmentContainer: null,
+    profileContainer: null,
+    questionContainer: null,
+    sectionContainer: null,
+    navigationContainer: null,
+    pageTitle: null,
+    pageSubtitle: null,
+    stepButtons: [],
+    progressBar: null,
+    previousButton: null,
+    nextButton: null,
+    submitButton: null,
+    resultContainer: null,
+    resultCard: null,
+    loadingOverlay: null,
+    stepPills: []
+};
 
-    alert(error.message);
-
+function byId(id) {
+    return document.getElementById(id);
 }
 
-    finally {
-
-        hideLoader();
-
-    }
-
+function byClass(className) {
+    return Array.from(document.getElementsByClassName(className));
 }
 
+function cacheDOM() {
+    Logger.log("Caching DOM...");
+    DOM.form = byId("assessmentForm");
+    DOM.container = byId("assessment");
+    DOM.assessmentContainer = byId("assessmentContainer");
+    DOM.profileContainer = byId("profileContainer");
+    DOM.questionContainer = byId("questionContainer");
+    DOM.sectionContainer = byId("sectionContainer");
+    DOM.navigationContainer = byId("navigationContainer");
+    DOM.pageTitle = byId("assessmentTitle");
+    DOM.pageSubtitle = byId("assessmentSubtitle");
+    DOM.progressBar = byId("progressFill");
+    DOM.previousButton = byId("previousButton");
+    DOM.nextButton = byId("nextButton");
+    DOM.submitButton = byId("submitButton");
+    DOM.resultContainer = byId("resultContainer");
+    DOM.resultCard = byId("resultCard");
+    DOM.loadingOverlay = byId("loadingOverlay");
+    DOM.stepButtons = byClass("assessment-step");
+    DOM.stepPills = byClass("step-pill");
+    Logger.log("DOM Cached.");
+}
 
-/* ==========================================================
-   Loader
-========================================================== */
+function verifyDOM() {
+    const required = ["form", "progressBar"];
+    required.forEach(name => {
+        if (!DOM[name]) {
+            Logger.warn(`DOM element validation warning: ${name} not found.`);
+        }
+    });
+}
 
-function showLoader(message = "Loading...") {
-
-    if (!loader) return;
-
-    loader.style.display = "flex";
-
-    const text =
-        loader.querySelector("span");
-
-    if (text) {
-
-        text.textContent = message;
-
+function showLoader(message = MESSAGE.LOADING) {
+    if (DOM.loadingOverlay) {
+        DOM.loadingOverlay.style.display = "flex";
     }
-
 }
 
 function hideLoader() {
-
-    if (!loader) return;
-
-    loader.style.display = "none";
-
+    if (DOM.loadingOverlay) {
+        DOM.loadingOverlay.style.display = "none";
+    }
 }
 
-
-/* ==========================================================
-   Fetch Questions
-========================================================== */
+/* ==========================================================================
+   Module 3
+   --------------------------------------------------------------------------
+   Question API & Parse Lookups
+   ========================================================================== */
 
 async function loadQuestions() {
-
-    const response =
-        await fetch(QUESTIONS_API);
-
-    if (!response.ok) {
-
-        throw new Error(
-            `Question API returned ${response.status}`
-        );
-
+    Logger.log("Loading assessment questions...");
+    STATE.loading = true;
+    showLoader(MESSAGE.LOADING);
+    try {
+        const response = await fetch(API.QUESTIONS, {
+            method: "GET",
+            credentials: "same-origin",
+            headers: { "Accept": "application/json" }
+        });
+        if (!response.ok) {
+            throw new Error(`API returned ${response.status}`);
+        }
+        const json = await response.json();
+        if (!json.success) {
+            throw new Error(json.message || MESSAGE.LOAD_ERROR);
+        }
+        parseBackendData(json.data);
+        renderAssessment();
+        Logger.log("Questions loaded successfully.");
+    } finally {
+        STATE.loading = false;
+        hideLoader();
     }
-
-    const json =
-        await response.json();
-
-    if (!json.success) {
-
-        throw new Error(
-
-            json.message ||
-
-            "Unable to load assessment."
-
-        );
-
-    }
-
-    profileQuestions =
-        json.data.profile_questions || [];
-
-    assessmentSections =
-        json.data.assessment_sections || [];
-
-    renderAssessment();
-
 }
 
+function parseBackendData(data) {
+    resetQuestionState();
+    STATE.profileQuestions = Array.isArray(data.profile_questions) ? data.profile_questions : [];
+    STATE.assessmentSections = Array.isArray(data.assessment_sections) ? data.assessment_sections : [];
+    buildSectionLookup();
+    buildQuestionLookup();
+    splitSections();
+    calculateQuestionCount();
+}
 
-/* ==========================================================
-   Render Assessment
-========================================================== */
+function resetQuestionState() {
+    STATE.profileQuestions = [];
+    STATE.assessmentSections = [];
+    STATE.sectionsById = {};
+    STATE.questionIndex = {};
+    STATE.lifestyleSections = [];
+    STATE.mentalHealthSections = [];
+    STATE.totalQuestions = 0;
+}
+
+function buildSectionLookup() {
+    STATE.assessmentSections.forEach(section => {
+        STATE.sectionsById[section.section_id] = section;
+    });
+}
+
+function buildQuestionLookup() {
+    STATE.profileQuestions.forEach(section => {
+        (section.questions || []).forEach(question => {
+            STATE.questionIndex[question.key] = question;
+        });
+    });
+    STATE.assessmentSections.forEach(section => {
+        (section.questions || []).forEach(question => {
+            STATE.questionIndex[question.key] = question;
+        });
+    });
+}
+
+function splitSections() {
+    STATE.lifestyleSections = STATE.assessmentSections.filter(section =>
+        SECTION_MAP.LIFESTYLE.includes(section.section_id)
+    );
+    STATE.mentalHealthSections = STATE.assessmentSections.filter(section =>
+        SECTION_MAP.MENTAL_HEALTH.includes(section.section_id)
+    );
+}
+
+function calculateQuestionCount() {
+    let total = 0;
+    STATE.profileQuestions.forEach(section => { total += (section.questions || []).length; });
+    STATE.assessmentSections.forEach(section => { total += (section.questions || []).length; });
+    STATE.totalQuestions = total;
+}
+
+function getProfileQuestions() { return STATE.profileQuestions; }
+
+function getLifestyleSections() { return STATE.lifestyleSections; }
+function getMentalHealthSections() { return STATE.mentalHealthSections; }
+
+/* ==========================================================================
+   Module 4
+   --------------------------------------------------------------------------
+   Rendering Engine
+   ========================================================================== */
 
 function renderAssessment() {
-
-    step2Container.innerHTML = "";
-
-    step3Container.innerHTML = "";
-
-    totalQuestions = 0;
-
-    assessmentSections.forEach((section, index) => {
-
-        const container =
-            index === 0
-                ? step2Container
-                : step3Container;
-
-        const title =
-            document.createElement("h3");
-
-        title.className =
-            "assessment-section-title";
-
-        title.textContent =
-            section.section_title;
-
-        container.appendChild(title);
-
-        section.questions.forEach(question => {
-
-            totalQuestions++;
-
-            container.appendChild(
-
-                createQuestion(question)
-
-            );
-
-        });
-
-    });
-
+    Logger.log("Rendering assessment...");
+    renderProfile();
+    renderLifestyle();
+    renderMentalHealth();
+    updateProgress();
 }
 
-/* ==========================================================
-   Create Question
-========================================================== */
+function renderProfile() {
+    const profileContainer = document.getElementById("step1Questions");
+    if (!profileContainer) return;
+    clearElement(profileContainer);
+    const sections = getProfileQuestions();
+    sections.forEach(section => {
+        profileContainer.appendChild(renderSection(section));
+    });
+}
 
-function createQuestion(question) {
+function renderLifestyle() {
+    const lifestyleContainer = document.getElementById("step2Questions");
+    if (!lifestyleContainer) return;
+    clearElement(lifestyleContainer);
+    const sections = getLifestyleSections();
+    sections.forEach(section => {
+        lifestyleContainer.appendChild(renderSection(section));
+    });
+}
 
-    const wrapper =
-        document.createElement("div");
+function renderMentalHealth() {
+    const mentalContainer = document.getElementById("step3Questions");
+    if (!mentalContainer) return;
+    clearElement(mentalContainer);
+    const sections = getMentalHealthSections();
+    sections.forEach(section => {
+        mentalContainer.appendChild(renderSection(section));
+    });
+}
 
-    wrapper.className = "premium-field";
+function renderSection(section) {
+    const wrapper = createElement("div", "assessment-section");
+    if (section.section_title) {
+        const heading = createElement("h3", "section-title");
+        heading.textContent = section.section_title;
+        wrapper.appendChild(heading);
+    }
+    if (section.description) {
+        const description = createElement("p", "section-description");
+        description.textContent = section.description;
+        wrapper.appendChild(description);
+    }
+    (section.questions || []).forEach(question => {
+        wrapper.appendChild(renderQuestion(question));
+    });
+    return wrapper;
+}
 
-    const label =
-        document.createElement("label");
-
+function renderQuestion(question) {
+    const card = createElement("div", "question-card");
+    card.dataset.key = question.key;
+    const label = createElement("label", "question-label");
     label.setAttribute("for", question.key);
+    label.textContent = question.label || "";
 
-    label.innerHTML =
+    if (question.required) {
+        const required = createElement("span", "required");
+        required.textContent = " *";
+        label.appendChild(required);
+    }
+    card.appendChild(label);
 
-        question.label +
+    const controlWrapper = createElement("div", "question-control");
+    controlWrapper.appendChild(createControl(question));
+    card.appendChild(controlWrapper);
 
-        (question.required
-            ? " <span class='required'>*</span>"
-            : "");
+    if (question.help_text) {
+        const help = createElement("small", "question-help");
+        help.textContent = question.help_text;
+        card.appendChild(help);
+    }
+    return card;
+}
 
-    wrapper.appendChild(label);
+/* ==========================================================================
+   Module 5
+   --------------------------------------------------------------------------
+   Control Factory
+   ========================================================================== */
 
-    const type =
-        (question.type || "text").toLowerCase();
-
+function createControl(question) {
+    const type = (question.type || "text").toLowerCase();
     switch (type) {
-
         case "text":
-        case "number":
         case "email":
+        case "number":
         case "date":
         case "time":
-
-            return createInput(wrapper, question);
-
+            return createInput(question);
         case "textarea":
-
-            return createTextarea(wrapper, question);
-
+            return createTextarea(question);
         case "select":
-
-            return createSelectField(wrapper, question);
-
+            return createSelect(question);
         case "radio":
-
-            return createRadioField(wrapper, question);
-
+            return createRadioGroup(question);
         case "checkbox":
-
-            return createCheckboxField(wrapper, question);
-
+            return createCheckboxGroup(question);
         case "slider":
         case "scale":
         case "likert":
-
-            return createSliderField(wrapper, question);
-
+            return createSlider(question);
         default:
-
-            return createInput(wrapper, question);
-
+            return createInput(question);
     }
-
 }
 
-/* ==========================================================
-   Input
-========================================================== */
-
-function createInput(wrapper, question) {
-
-    const input =
-        document.createElement("input");
-
+function createInput(question) {
+    const input = createElement("input", "assessment-input");
     input.type = question.type || "text";
-
     input.id = question.key;
-
     input.name = question.key;
-
-    input.className = "assessment-input";
-
-    input.required = !!question.required;
-
-    input.placeholder =
-        question.placeholder || "";
-
-    if (question.min !== undefined)
-        input.min = question.min;
-
-    if (question.max !== undefined)
-        input.max = question.max;
-
-    if (question.step !== undefined)
-        input.step = question.step;
-
-    input.addEventListener(
-
-        "input",
-
-        autoSave
-
-    );
-
-    wrapper.appendChild(input);
-
-    return wrapper;
-
+    input.placeholder = question.placeholder || "";
+    if (question.required) input.required = true;
+    if (question.min !== undefined) input.min = question.min;
+    if (question.max !== undefined) input.max = question.max;
+    if (question.step !== undefined) input.step = question.step;
+    if (question.default !== undefined) input.value = question.default;
+    return input;
 }
 
-/* ==========================================================
-   Textarea
-========================================================== */
-
-function createTextarea(wrapper, question) {
-
-    const textarea =
-        document.createElement("textarea");
-
+function createTextarea(question) {
+    const textarea = createElement("textarea", "assessment-textarea");
     textarea.id = question.key;
-
     textarea.name = question.key;
-
-    textarea.rows = question.rows || 4;
-
-    textarea.required = !!question.required;
-
-    textarea.placeholder =
-        question.placeholder || "";
-
-    textarea.className =
-        "assessment-input";
-
-    textarea.addEventListener(
-
-        "input",
-
-        autoSave
-
-    );
-
-    wrapper.appendChild(textarea);
-
-    return wrapper;
-
+    textarea.rows = question.rows || 5;
+    textarea.placeholder = question.placeholder || "";
+    if (question.required) textarea.required = true;
+    return textarea;
 }
 
-/* ==========================================================
-   Select
-========================================================== */
-
-function createSelectField(wrapper, question) {
-
-    const select =
-        document.createElement("select");
-
+function createSelect(question) {
+    const select = createElement("select", "assessment-select");
     select.id = question.key;
-
     select.name = question.key;
-
-    select.required = !!question.required;
-
-    select.className =
-        "assessment-input";
-
-    const first =
-        document.createElement("option");
-
-    first.value = "";
-
-    first.textContent = "Select";
-
-    select.appendChild(first);
-
+    if (question.required) select.required = true;
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = question.placeholder || "Select an option";
+    select.appendChild(placeholder);
     (question.options || []).forEach(option => {
-
-        const opt =
-            document.createElement("option");
-
+        const opt = document.createElement("option");
         if (typeof option === "object") {
-
             opt.value = option.value;
-
             opt.textContent = option.label;
-
-        }
-
-        else {
-
+        } else {
             opt.value = option;
-
             opt.textContent = option;
-
         }
-
         select.appendChild(opt);
-
     });
-
-    select.addEventListener(
-
-        "change",
-
-        autoSave
-
-    );
-
-    wrapper.appendChild(select);
-
-    return wrapper;
-
+    return select;
 }
 
-/* ==========================================================
-   Radio
-========================================================== */
-
-function createRadioField(wrapper, question) {
-
-    const group =
-        document.createElement("div");
-
-    group.className = "option-group";
-
+function createRadioGroup(question) {
+    const wrapper = createElement("div", "option-group");
     (question.options || []).forEach(option => {
+        const label = createElement("label", "option-item");
+        const input = document.createElement("input");
+        input.type = "radio";
+        input.name = question.key;
+        input.id = `${question.key}_${String(option.value || option).replace(/\s+/g, "_")}`;
+        input.value = typeof option === "object" ? option.value : option;
+        if (question.required) input.required = true;
 
-        const value =
-            typeof option === "object"
-                ? option.value
-                : option;
-
-        const text =
-            typeof option === "object"
-                ? option.label
-                : option;
-
-        const label =
-            document.createElement("label");
-
-        label.className = "option-item";
-
-        label.innerHTML = `
-
-            <input
-                type="radio"
-                name="${question.key}"
-                value="${value}"
-            >
-
-            <span>${text}</span>
-
-        `;
-
-        label.querySelector("input")
-
-            .addEventListener(
-
-                "change",
-
-                autoSave
-
-            );
-
-        group.appendChild(label);
-
+        const span = document.createElement("span");
+        span.textContent = typeof option === "object" ? option.label : option;
+        label.appendChild(input);
+        label.appendChild(span);
+        wrapper.appendChild(label);
     });
-
-    wrapper.appendChild(group);
-
     return wrapper;
-
 }
 
-/* ==========================================================
-   Checkbox
-========================================================== */
-
-function createCheckboxField(wrapper, question) {
-
-    const group =
-        document.createElement("div");
-
-    group.className = "option-group";
-
+function createCheckboxGroup(question) {
+    const wrapper = createElement("div", "option-group");
     (question.options || []).forEach(option => {
+        const label = createElement("label", "option-item");
+        const input = document.createElement("input");
+        input.type = "checkbox";
+        input.name = question.key;
+        input.id = `${question.key}_${String(option.value || option).replace(/\s+/g, "_")}`;
+        input.value = typeof option === "object" ? option.value : option;
 
-        const value =
-            typeof option === "object"
-                ? option.value
-                : option;
-
-        const text =
-            typeof option === "object"
-                ? option.label
-                : option;
-
-        const label =
-            document.createElement("label");
-
-        label.className = "option-item";
-
-        label.innerHTML = `
-
-            <input
-                type="checkbox"
-                name="${question.key}"
-                value="${value}"
-            >
-
-            <span>${text}</span>
-
-        `;
-
-        label.querySelector("input")
-
-            .addEventListener(
-
-                "change",
-
-                autoSave
-
-            );
-
-        group.appendChild(label);
-
+        const span = document.createElement("span");
+        span.textContent = typeof option === "object" ? option.label : option;
+        label.appendChild(input);
+        label.appendChild(span);
+        wrapper.appendChild(label);
     });
-
-    wrapper.appendChild(group);
-
     return wrapper;
-
 }
 
-/* ==========================================================
-   Slider
-========================================================== */
-
-function createSliderField(wrapper, question) {
-
-    const container =
-        document.createElement("div");
-
-    container.className =
-        "slider-container";
-
-    const slider =
-        document.createElement("input");
-
+function createSlider(question) {
+    const wrapper = createElement("div", "slider-container");
+    const slider = document.createElement("input");
     slider.type = "range";
-
+    slider.className = "assessment-slider";
     slider.id = question.key;
-
     slider.name = question.key;
-
     slider.min = question.min ?? 0;
-
     slider.max = question.max ?? 10;
-
     slider.step = question.step ?? 1;
+    slider.value = question.default ?? question.min ?? 0;
 
-    slider.value = question.default ?? slider.min;
-
-    slider.className =
-        "assessment-slider";
-
-    const value =
-        document.createElement("span");
-
-    value.className =
-        "slider-value";
-
+    const value = createElement("span", "slider-value");
     value.textContent = slider.value;
-
-    slider.addEventListener(
-
-        "input",
-
-        () => {
-
-            value.textContent = slider.value;
-
-            autoSave();
-
-        }
-
-    );
-
-    container.appendChild(slider);
-
-    container.appendChild(value);
-
-    wrapper.appendChild(container);
-
+    slider.addEventListener("input", () => {
+        value.textContent = slider.value;
+        updateProgress();
+    });
+    wrapper.appendChild(slider);
+    wrapper.appendChild(value);
     return wrapper;
-
 }
 
-/* ==========================================================
-   Navigation
-========================================================== */
+/* ==========================================================================
+   Module 6
+   --------------------------------------------------------------------------
+   Navigation Layer
+   ========================================================================== */
 
 function initialiseNavigation() {
-
     document
         .querySelectorAll(".next-step-btn")
-        .forEach(button => {
-
-            button.addEventListener("click", () => {
-
-                if (!validateStep(currentStep))
-                    return;
-
-                showStep(
-
-                    Number(button.dataset.next)
-
-                );
-
-            });
-
+        .forEach(btn => {
+            btn.addEventListener("click", handleNextStep);
         });
 
     document
         .querySelectorAll(".prev-step-btn")
-        .forEach(button => {
-
-            button.addEventListener("click", () => {
-
-                showStep(
-
-                    Number(button.dataset.prev)
-
-                );
-
-            });
-
+        .forEach(btn => {
+            btn.addEventListener("click", handlePreviousStep);
         });
-
-    showStep(1);
-
 }
-
-/* ==========================================================
-   Step Switching
-========================================================== */
 
 function showStep(step) {
-
-    document
-
-        .querySelectorAll(".assessment-step")
-
-        .forEach(section =>
-
-            section.classList.remove("active-step")
-
-        );
-
-    document
-
-        .getElementById(`step-${step}`)
-
-        ?.classList.add("active-step");
-
-    currentStep = step;
-
-    stepPills.forEach((pill, index) => {
-
-        pill.classList.toggle(
-
-            "active",
-
-            index < step
-
-        );
-
+    STATE.currentStep = step;
+    document.querySelectorAll(".assessment-step").forEach(section => {
+        section.classList.remove("active-step");
+        section.style.display = "none";
     });
-
-    updateProgress();
-
-}
-
-/* ==========================================================
-   Validation
-========================================================== */
-
-function validateStep(step) {
-
-    const container =
-
-        document.getElementById(
-
-            `step-${step}`
-
-        );
-
-    if (!container)
-        return true;
-
-    const requiredFields =
-
-        container.querySelectorAll(
-
-            "[required]"
-
-        );
-
-    for (const field of requiredFields) {
-
-        if (
-
-            field.type === "radio"
-
-        ) {
-
-            const checked =
-
-                container.querySelector(
-
-                    `input[name="${field.name}"]:checked`
-
-                );
-
-            if (!checked) {
-
-                alert("Please answer all required questions.");
-
-                return false;
-
-            }
-
-            continue;
-
-        }
-
-        if (
-
-            field.type === "checkbox"
-
-        ) {
-
-            const checked =
-
-                container.querySelectorAll(
-
-                    `input[name="${field.name}"]:checked`
-
-                );
-
-            if (!checked.length) {
-
-                alert("Please answer all required questions.");
-
-                return false;
-
-            }
-
-            continue;
-
-        }
-
-        if (
-
-            field.value === ""
-
-        ) {
-
-            field.focus();
-
-            alert("Please complete all required fields.");
-
-            return false;
-
-        }
-
+    const activeStep = document.getElementById(`step-${step}`);
+    if (activeStep) {
+        activeStep.classList.add("active-step");
+        activeStep.style.display = "block";
     }
-
-    return true;
-
+    updateStepIndicator();
+    updateProgress();
+    window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
-/* ==========================================================
-   Autosave
-========================================================== */
+function handleNextStep(event) {
+    event.preventDefault();
 
-function autoSave() {
+    if (!validateStep(STATE.currentStep)) {
+        return;
+    }
 
     saveDraft();
 
-    updateProgress();
-
-}
-
-/* ==========================================================
-   Progress
-========================================================== */
-
-function updateProgress() {
-
-    let total = 0;
-
-    let completed = 0;
-
-    document
-
-        .querySelectorAll(
-
-            "#step-1 input,#step-1 select"
-
-        )
-
-        .forEach(field => {
-
-            total++;
-
-            if (field.value !== "")
-
-                completed++;
-
-        });
-
-    assessmentSections.forEach(section => {
-
-        section.questions.forEach(question => {
-
-            total++;
-
-            const type =
-
-                (question.type || "")
-
-                .toLowerCase();
-
-            if (
-
-                type === "slider" ||
-
-                type === "scale" ||
-
-                type === "likert"
-
-            ) {
-
-                const slider =
-
-                    document.getElementById(
-
-                        question.key
-
-                    );
-
-                if (slider)
-
-                    completed++;
-
-                return;
-
-            }
-
-            if (type === "radio") {
-
-                const checked =
-
-                    document.querySelector(
-
-                        `input[name="${question.key}"]:checked`
-
-                    );
-
-                if (checked)
-
-                    completed++;
-
-                return;
-
-            }
-
-            if (type === "checkbox") {
-
-                const checked =
-
-                    document.querySelectorAll(
-
-                        `input[name="${question.key}"]:checked`
-
-                    );
-
-                if (checked.length)
-
-                    completed++;
-
-                return;
-
-            }
-
-            const field =
-
-                document.getElementById(
-
-                    question.key
-
-                );
-
-            if (
-
-                field &&
-
-                field.value !== ""
-
-            )
-
-                completed++;
-
-        });
-
-    });
-
-    const percentage =
-
-        total === 0
-
-            ? 0
-
-            : Math.round(
-
-                (completed / total) * 100
-
-            );
-
-    progressBar.style.width =
-
-        percentage + "%";
-
-}
-
-/* ==========================================================
-   Save Draft
-========================================================== */
-
-function saveDraft() {
-
-    localStorage.setItem(
-
-        "assessmentDraft",
-
-        JSON.stringify(
-
-            buildPayload()
-
-        )
-
+    const nextStep = Number(
+        event.currentTarget.dataset.next
     );
 
+    if (!nextStep) return;
+
+    showStep(nextStep);
 }
 
-/* ==========================================================
-   Restore Draft
-========================================================== */
+function handlePreviousStep(event) {
+    event.preventDefault();
+    saveDraft();
+    const previous = Number(event.currentTarget.dataset.prev);
+    if (previous >= STEP.PROFILE && previous <= STEP.TOTAL) {
+        showStep(previous);
+    }
+}
 
-function restoreDraft() {
-
-    const raw =
-
-        localStorage.getItem(
-
-            "assessmentDraft"
-
-        );
-
-    if (!raw)
-        return;
-
-    const draft =
-
-        JSON.parse(raw);
-
-    Object.entries(
-
-        draft.profile || {}
-
-    ).forEach(([key, value]) => {
-
-        const field =
-
-            document.getElementById(key);
-
-        if (field)
-
-            field.value = value;
-
+function updateStepIndicator() {
+    if (!DOM.stepPills || DOM.stepPills.length === 0) return;
+    DOM.stepPills.forEach((pill, index) => {
+        const pillStep = index + 1;
+        pill.classList.remove("active", "completed");
+        if (pillStep === STATE.currentStep) {
+            pill.classList.add("active");
+        } else if (pillStep < STATE.currentStep) {
+            pill.classList.add("completed");
+        }
     });
-
-    Object.entries(
-
-        draft.answers || {}
-
-    ).forEach(([key, value]) => {
-
-        if (
-
-            Array.isArray(value)
-
-        ) {
-
-            value.forEach(v => {
-
-                document.querySelector(
-
-                    `input[name="${key}"][value="${v}"]`
-
-                )?.click();
-
-            });
-
-            return;
-
-        }
-
-        const radio =
-
-            document.querySelector(
-
-                `input[name="${key}"][value="${value}"]`
-
-            );
-
-        if (radio) {
-
-            radio.checked = true;
-
-            return;
-
-        }
-
-        const field =
-
-            document.getElementById(key);
-
-        if (field) {
-
-            field.value = value;
-
-            if (
-
-                field.type === "range"
-
-            ) {
-
-                const valueLabel =
-
-                    field.parentElement.querySelector(
-
-                        ".slider-value"
-
-                    );
-
-                if (valueLabel)
-
-                    valueLabel.textContent = value;
-
-            }
-
-        }
-
-    });
-
-    updateProgress();
-
 }
 
-/* ==========================================================
-   Reset
-========================================================== */
+/* ==========================================================================
+   Module 7
+   --------------------------------------------------------------------------
+   Validation Layer
+   ========================================================================== */
 
-function resetAssessment() {
+function validateStep(step) {
+    const container = document.getElementById(`step-${step}`);
+    if (!container) return true;
+    clearValidationErrors();
 
-    form.reset();
-
-    localStorage.removeItem(
-
-        "assessmentDraft"
-
-    );
-
-    currentStep = 1;
-
-    showStep(1);
-
-    updateProgress();
-
-    resultCard.style.display = "none";
-
+    const requiredQuestions = container.querySelectorAll("[required]");
+    for (const field of requiredQuestions) {
+        if (!validateField(field)) {
+            markFieldInvalid(field);
+            field.scrollIntoView({ behavior: "smooth", block: "center" });
+            try { field.focus(); } catch (_) {}
+            notify("Please answer all required questions before continuing.", "warning");
+            return false;
+        }
+    }
+    return true;
 }
 
-/* ==========================================================
-   PHASE 4
-   Payload Builder + Submit
-========================================================== */
+function validateField(field) {
+    if (!field) return true;
+    const type = (field.type || "").toLowerCase();
+
+    if (type === "radio") {
+        return !!document.querySelector(`input[name="${field.name}"]:checked`);
+    }
+    if (type === "checkbox") {
+        return document.querySelectorAll(`input[name="${field.name}"]:checked`).length > 0;
+    }
+    if (field.tagName === "SELECT") {
+        return field.value !== "";
+    }
+    if (field.tagName === "TEXTAREA") {
+        return field.value.trim().length > 0;
+    }
+    if (type === "number") {
+        if (field.value === "") return false;
+        const value = Number(field.value);
+        if (Number.isNaN(value)) return false;
+        if (field.min !== "" && value < Number(field.min)) return false;
+        if (field.max !== "" && value > Number(field.max)) return false;
+        return true;
+    }
+    if (type === "range") return true;
+    
+    // Bulletproof string value fallback checks
+    return field.value && typeof field.value.trim === 'function' ? field.value.trim() !== "" : !!field.value;
+}
+
+function markFieldInvalid(field) {
+    if (!field) return;
+    field.classList.add("input-error");
+}
+
+function removeFieldError(field) {
+    if (!field) return;
+    field.classList.remove("input-error");
+}
+
+function clearValidationErrors() {
+    document.querySelectorAll(".input-error").forEach(el => el.classList.remove("input-error"));
+}
+
+function validateEntireAssessment() {
+    for (let step = STEP.PROFILE; step <= STEP.TOTAL; step++) {
+        if (!validateStep(step)) {
+            showStep(step);
+            return false;
+        }
+    }
+    return true;
+}
+
+/* ==========================================================================
+   Module 8
+   --------------------------------------------------------------------------
+   Payload Builder
+   ========================================================================== */
 
 function buildPayload() {
+    const profile = {};
+    const assessment = {};
 
-    const profile = {
-
-        name:
-            document.getElementById("name")?.value.trim() || "",
-
-        age:
-            Number(document.getElementById("age")?.value || 0),
-
-        gender:
-            document.getElementById("gender")?.value || "",
-
-        college_year:
-            document.getElementById("college_year")?.value || "",
-
-        course:
-            document.getElementById("course")?.value.trim() || ""
-
-    };
-
-    const answers = {};
-
-    assessmentSections.forEach(section => {
-
-        section.questions.forEach(question => {
-
-            const key = question.key;
-
-            const type = (question.type || "text").toLowerCase();
-
-            // ===========================
-            // Slider
-            // ===========================
-
-            if (
-                type === "slider" ||
-                type === "scale" ||
-                type === "likert"
-            ) {
-
-                const slider =
-                    document.getElementById(key);
-
-                answers[key] = slider
-                    ? Number(slider.value)
-                    : null;
-
-                return;
-            }
-
-            // ===========================
-            // Radio
-            // ===========================
-
-            if (type === "radio") {
-
-                const checked =
-                    document.querySelector(
-                        `input[name="${key}"]:checked`
-                    );
-
-                answers[key] =
-                    checked
-                        ? Number(checked.value)
-                        : null;
-
-                return;
-            }
-
-            // ===========================
-            // Checkbox
-            // ===========================
-
-            if (type === "checkbox") {
-
-                answers[key] = Array.from(
-
-                    document.querySelectorAll(
-                        `input[name="${key}"]:checked`
-                    )
-
-                ).map(item => item.value);
-
-                return;
-            }
-
-            // ===========================
-            // Select
-            // ===========================
-
-            if (type === "select") {
-
-                const select =
-                    document.getElementById(key);
-
-                answers[key] =
-                    select
-                        ? select.value
-                        : "";
-
-                return;
-            }
-
-            // ===========================
-            // Text / Number / Textarea
-            // ===========================
-
-            const field =
-                document.getElementById(key);
-
-            if (!field) {
-
-                answers[key] = "";
-
-                return;
-            }
-
-            if (type === "number") {
-
-                answers[key] =
-                    field.value === ""
-                        ? null
-                        : Number(field.value);
-
-            }
-
-            else {
-
-                answers[key] = field.value.trim();
-
-            }
-
+    (STATE.profileQuestions || []).forEach(section => {
+        (section.questions || []).forEach(question => {
+            if (question.key === "city" || question.key === "college") return;
+            profile[question.key] = getQuestionValue(question);
         });
-
     });
 
-    return {
+    (STATE.assessmentSections || []).forEach(section => {
+        (section.questions || []).forEach(question => {
+            assessment[question.key] = getQuestionValue(question);
+        });
+    });
 
-        profile,
-
-        answers
-
-    };
-
+    return { profile, assessment };
 }
 
-form.addEventListener(
-    "submit",
-    submitAssessment
-);
+function getQuestionValue(question) {
+    const key = question.key;
+    const type = (question.type || "text").toLowerCase();
 
-async function submitAssessment(e) {
+    if (type === "radio") {
+        const checked = document.querySelector(`input[name="${key}"]:checked`);
+        return checked ? (isNaN(checked.value) || checked.value === "" ? checked.value : Number(checked.value)) : null;
+    }
+    if (type === "checkbox") {
+        return Array.from(document.querySelectorAll(`input[name="${key}"]:checked`)).map(item => 
+            isNaN(item.value) || item.value === "" ? item.value : Number(item.value)
+        );
+    }
+    if (["slider", "scale", "likert", "range"].includes(type)) {
+        const slider = document.getElementById(key);
+        return slider ? Number(slider.value) : null;
+    }
 
-    e.preventDefault();
+    const field = document.getElementById(key);
+    if (!field) return null;
 
-    if (loading) return;
+    const trimmedValue = field.value.trim();
+    if (trimmedValue === "") return null; // Convert blank entries to null so the backend handles nullable states correctly
 
-    if (!validateStep(currentStep))
-        return;
+    // Force conversion if the entry is strictly numeric, even if the element type is a select dropdown or standard text
+    if (!isNaN(trimmedValue) && trimmedValue !== "") {
+        return Number(trimmedValue);
+    }
 
-    loading = true;
+    return trimmedValue;
+}
 
-    showLoader("Analyzing your responses...");
+/* ==========================================================================
+   Module 9
+   --------------------------------------------------------------------------
+   Submission Layer
+   ========================================================================== */
+
+async function submitAssessment(event) {
+    if (event) event.preventDefault();
+    if (STATE.submitting) return;
+    if (!validateEntireAssessment()) return;
+
+    STATE.submitting = true;
+    showLoader("Submitting assessment...");
 
     try {
-
         const payload = buildPayload();
-
-        console.log(payload);
-
-        const response = await fetch(
-            SUBMIT_API,
-            {
-                method: "POST",
-
-                headers: {
-
-                    "Content-Type": "application/json",
-
-                    "X-CSRFToken": getCSRFToken()
-
-                },
-
-                body: JSON.stringify(payload)
-
-            }
-        );
-
-        const result = await response.json();
-
-        console.log(result);
-
-        if (!response.ok || !result.success) {
-
-            throw new Error(
-                result.message || "Assessment failed."
-            );
-
+        const response = await fetch(API.SUBMIT, {
+            method: "POST",
+            credentials: "same-origin",
+            headers: {
+                "Content-Type": "application/json",
+                "X-CSRFToken": getCSRFToken(),
+                "Accept": "application/json"
+            },
+            body: JSON.stringify(payload)
+        });
+        const json = await response.json();
+        if (!response.ok || !json.success) {
+            throw new Error(json.message || "Assessment submission failed.");
         }
-
-        localStorage.removeItem("assessmentDraft");
-
-        if (result.redirect_url) {
-            window.location.href = result.redirect_url;
-            } else {
-                window.location.href = "/dashboard/";
-                }
-                
-
-    }
-
-    catch (error) {
-
+        clearDraft();
+        handleSubmissionSuccess(json);
+    } catch (error) {
         console.error(error);
-
-        alert(error.message);
-
-    }
-
-    finally {
-
-        loading = false;
-
+        notify(error.message || "Unable to submit assessment.", "error");
+    } finally {
+        STATE.submitting = false;
         hideLoader();
-
     }
+}
 
+function handleSubmissionSuccess(response) {
+    Logger.log("Submission successful. Redirecting user to analysis dashboard...");
+    
+    // Check if the backend gave an explicit URL redirect, otherwise default straight to '/dashboard/'
+    if (response.redirect_url) { 
+        window.location.href = response.redirect_url; 
+        return; 
+    }
+    if (response.dashboard_url) { 
+        window.location.href = response.dashboard_url; 
+        return; 
+    }
+    
+    // Direct absolute fallback redirection to dashboard route
+    window.location.href = "/dashboard/";
 }
 
 function getCSRFToken() {
-
-    const csrf =
-        document.querySelector(
-            "[name=csrfmiddlewaretoken]"
-        );
-
-    return csrf
-        ? csrf.value
-        : "";
-
+    const csrf = document.querySelector("[name=csrfmiddlewaretoken]");
+    if (csrf) return csrf.value;
+    const cookie = document.cookie.split(";").map(c => c.trim()).find(c => c.startsWith("csrftoken="));
+    return cookie ? cookie.substring("csrftoken=".length) : "";
 }
 
+/* ==========================================================================
+   Module 10
+   --------------------------------------------------------------------------
+   Draft Management Layer
+   ========================================================================== */
+
+function saveDraft() {
+    try {
+        const payload = buildPayload();
+        localStorage.setItem(STORAGE.DRAFT, JSON.stringify(payload));
+    } catch (error) {
+        console.warn("Unable to save assessment draft.", error);
+    }
+}
+
+function restoreDraft() {
+    try {
+        const raw = localStorage.getItem(STORAGE.DRAFT);
+        if (!raw) return;
+        const draft = JSON.parse(raw);
+        restoreGroupAnswers(draft.profile || {});
+        restoreGroupAnswers(draft.assessment || {});
+        updateProgress();
+    } catch (error) {
+        console.warn("Unable to restore assessment draft.", error);
+    }
+}
+
+function clearDraft() {
+    localStorage.removeItem(STORAGE.DRAFT);
+}
+
+function restoreGroupAnswers(group) {
+    Object.entries(group).forEach(([key, value]) => {
+        if (value === null || value === undefined) return;
+        const radio = document.querySelector(`input[name="${key}"][value="${value}"]`);
+        if (radio) { radio.checked = true; return; }
+
+        if (Array.isArray(value)) {
+            value.forEach(item => {
+                const cb = document.querySelector(`input[name="${key}"][value="${item}"]`);
+                if (cb) cb.checked = true;
+            });
+            return;
+        }
+
+        const field = document.getElementById(key);
+        if (field) {
+            field.value = value;
+            if (field.type === "range") {
+                const label = field.parentElement.querySelector(".slider-value");
+                if (label) label.textContent = value;
+            }
+        }
+    });
+}
+
+/* ==========================================================================
+   Module 11
+   --------------------------------------------------------------------------
+   Progress Management Engine
+   ========================================================================== */
+
+function updateProgress() {
+    const percent = calculateProgress();
+    if (DOM.progressBar) {
+        DOM.progressBar.style.width = `${percent}%`;
+        DOM.progressBar.setAttribute("aria-valuenow", percent);
+    }
+}
+
+function calculateProgress() {
+    const percentage = ((STATE.currentStep - 1) / (STEP.TOTAL - 1)) * 100;
+    return Math.min(100, Math.max(0, Math.round(percentage)));
+}
+
+/* ==========================================================================
+   Module 12
+   --------------------------------------------------------------------------
+   Result Display Pipeline
+   ========================================================================== */
+
+function displayResult(result) {
+    if (!DOM.resultCard || !result) return;
+    DOM.resultCard.style.display = "block";
+    setResultValue("stressLevel", result.stress_level ?? result.stress ?? "--");
+    setResultValue("burnoutScore", result.burnout_score ?? result.burnout ?? "--");
+    setResultValue("wellnessScore", result.wellness_score ?? result.wellness ?? "--");
+    setResultValue("mentalStatus", result.mental_health_status ?? result.status ?? "--");
+    setResultText("supportMessage", result.support_message || "Assessment completed successfully.");
+    setResultList("musicList", result.recommended_music || []);
+    setResultList("activityList", result.recommended_activities || []);
+    DOM.resultCard.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function setResultValue(id, value) { const el = byId(id); if (el) el.textContent = value; }
+function setResultText(id, text) { const el = byId(id); if (el) el.textContent = text; }
+function setResultList(id, items) {
+    const list = byId(id); if (!list) return; list.innerHTML = "";
+    if (!items.length) { const li = document.createElement("li"); li.textContent = "None."; list.appendChild(li); return; }
+    items.forEach(i => { const li = document.createElement("li"); li.textContent = i; list.appendChild(li); });
+}
+
+/* ==========================================================================
+   Module 13
+   --------------------------------------------------------------------------
+   Shared Utility Functions
+   ========================================================================== */
+
+function notify(message, type = "info") {
+    console.log(`[${type.toUpperCase()}]`, message);
+    if (type === "error" || type === "warning") alert(message);
+}
+
+function debounce(callback, delay = 300) {
+    let timeout = null;
+    return function (...args) {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => callback.apply(this, args), delay);
+    };
+}
+
+function createElement(tag, className = "") {
+    const el = document.createElement(tag);
+    if (className) el.className = className;
+    return el;
+}
+
+function clearElement(element) {
+    if (!element) return;
+    while (element.firstChild) element.removeChild(element.firstChild);
+}
+
+/* ==========================================================================
+   Module 14
+   --------------------------------------------------------------------------
+   Unified System Application Bootstrap
+   ========================================================================== */
+
+function registerGlobalEvents() {
+    if (DOM.form) {
+        DOM.form.addEventListener("submit", submitAssessment);
+    }
+    const liveSave = debounce(() => {
+        saveDraft();
+        updateProgress();
+    }, 300);
+    document.addEventListener("input", liveSave);
+    document.addEventListener("change", liveSave);
+    window.addEventListener("beforeunload", saveDraft);
+}
+
+async function bootstrapAssessment() {
+    if (STATE.initialized) return;
+    try {
+        cacheDOM();
+        verifyDOM();
+        registerGlobalEvents();
+        
+        // Fetch and load structural data first
+        await loadQuestions();
+        
+        // Attach handlers AFTER elements settle in the DOM lifecycle
+        initialiseNavigation();
+        
+        restoreDraft();
+        showStep(STEP.PROFILE);
+        STATE.initialized = true;
+    } catch (error) {
+        Logger.error("Failed executing assessment initialization:", error);
+    }
+}
+
+document.addEventListener("DOMContentLoaded", bootstrapAssessment);

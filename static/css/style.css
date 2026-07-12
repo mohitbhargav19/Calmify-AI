@@ -1534,3 +1534,85 @@ select option{
     background:#1f2937;
     color:white;
 }
+
+.question-card{
+
+    display:flex !important;
+
+    flex-direction:column !important;
+
+    align-items:stretch !important;
+
+    gap:16px !important;
+
+}
+
+.question-label{
+
+    display:block !important;
+
+    width:100%;
+
+    margin-bottom:10px;
+
+}
+.assessment-input,
+.assessment-select,
+.assessment-textarea{
+
+    display:block;
+
+    width:100%;
+
+    color:#fff !important;
+
+    background:rgba(255,255,255,.12);
+
+    padding:14px;
+
+    border:none;
+
+    border-radius:12px;
+
+    box-sizing:border-box;
+
+}
+
+.question-card{
+
+    display:flex;
+    flex-direction:column;
+    gap:14px;
+
+}
+
+.question-control{
+
+    width:100%;
+
+}
+
+.assessment-input,
+.assessment-select,
+.assessment-textarea,
+.assessment-slider{
+
+    width:25%;
+    display:block;
+
+}
+
+.assessment-select{
+
+    appearance:none;
+    -webkit-appearance:none;
+    -moz-appearance:none;
+
+}
+
+.assessment-select option{
+
+    background:#1f2937;
+    color:#fff;
+
+}

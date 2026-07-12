@@ -5,39 +5,24 @@
 
 <head>
     <meta charset="UTF-8">
-
-    <meta
-        name="viewport"
-        content="width=device-width, initial-scale=1.0">
-
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Calmify AI Assessment</title>
 
-    <link
-        rel="stylesheet"
-        href="{% static 'css/style.css' %}">
-
-    <link rel="stylesheet"
-          href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link rel="stylesheet" href="{% static 'css/style.css' %}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 </head>
 
 <body>
 
 <header>
-
     <div class="logo-container">
-        <img
-            src="{% static 'images/logo.png' %}"
-            alt="Logo">
-
-        <div class="logo-text">
-            Calmify AI
-        </div>
+        <img src="{% static 'images/logo.png' %}" alt="Logo">
+        <div class="logo-text">Calmify AI</div>
     </div>
 
     <nav>
         <ul>
             <li><a href="/">Home</a></li>
-
             {% if request.user.is_authenticated %}
             <li><a href="{% url 'dashboard' %}">Dashboard</a></li>
             {% endif %}
@@ -50,7 +35,6 @@
                 <button class="profile-btn">
                     👤 {{ request.user.username }}
                 </button>
-
                 <div class="dropdown-content">
                     <a href="{% url 'dashboard' %}">Dashboard</a>
                     <a href="{% url 'logout' %}">Logout</a>
@@ -60,22 +44,17 @@
             <a href="{% url 'login' %}">
                 <button class="login-btn">Login</button>
             </a>
-
             <a href="{% url 'signup' %}">
                 <button class="signup-btn">Sign Up</button>
             </a>
         {% endif %}
     </div>
-
 </header>
 
 <div class="assessment-container premium-assessment-container">
 
     <div class="assessment-hero">
-        <h1 class="assessment-title">
-            Mental Wellness Assessment
-        </h1>
-
+        <h1 class="assessment-title">Mental Wellness Assessment</h1>
         <p class="assessment-subtitle">
             A guided step-by-step wellness assessment to understand stress, burnout,
             emotional health, and supportive music habits.
@@ -88,12 +67,10 @@
             <span class="step-number">1</span>
             <span class="step-label">Profile</span>
         </div>
-
         <div class="step-pill" id="step-pill-2">
             <span class="step-number">2</span>
             <span class="step-label">Lifestyle</span>
         </div>
-
         <div class="step-pill" id="step-pill-3">
             <span class="step-number">3</span>
             <span class="step-label">Mental Health</span>
@@ -102,46 +79,32 @@
 
     <!-- PROGRESS -->
     <div class="progress-wrapper premium-progress-wrapper">
-        <div
-            class="progress-bar"
-            id="progressBar">
-        </div>
+        <div class="progress-bar" id="progressBar"></div>
     </div>
 
     <form id="assessmentForm">
-
         {% csrf_token %}
 
         <!-- =========================
              STEP 1: PROFILE
         ========================== -->
         <div class="assessment-step active-step" id="step-1">
-
             <div class="question-card premium-card">
-                <div class="question-number">
-                    Step 1 of 3
-                </div>
-
-                <div class="question-text">
-                    Personal & Academic Profile
-                </div>
-
+                <div class="question-number">Step 1 of 3</div>
+                <div class="question-text">Personal & Academic Profile</div>
                 <p class="step-helper-text">
                     These details help Calmify AI interpret your assessment in a more relevant way.
                 </p>
 
                 <div class="premium-grid two-col">
-
                     <div class="premium-field">
                         <label for="name">Full Name</label>
                         <input type="text" id="name" placeholder="Enter your name">
                     </div>
-
                     <div class="premium-field">
                         <label for="age">Age</label>
                         <input type="number" id="age" min="10" max="60" placeholder="Enter your age">
                     </div>
-
                     <div class="premium-field">
                         <label for="gender">Gender</label>
                         <select id="gender">
@@ -151,7 +114,6 @@
                             <option value="other">Other</option>
                         </select>
                     </div>
-
                     <div class="premium-field">
                         <label for="college_year">College Year</label>
                         <select id="college_year">
@@ -163,19 +125,15 @@
                             <option value="postgraduate">Postgraduate</option>
                         </select>
                     </div>
-
                     <div class="premium-field">
                         <label for="course">Course</label>
                         <input type="text" id="course" placeholder="e.g. BTech / MBA / BSc">
                     </div>
-
                 </div>
             </div>
 
             <div class="step-navigation">
-                <button type="button" class="next-step-btn" data-next="2">
-                    Next Step
-                </button>
+                <button type="button" class="next-step-btn" data-next="2">Next Step</button>
             </div>
         </div>
 
@@ -183,31 +141,18 @@
              STEP 2: LIFESTYLE + ACADEMICS
         ========================== -->
         <div class="assessment-step" id="step-2">
-
             <div class="question-card premium-card">
-                <div class="question-number">
-                    Step 2 of 3
-                </div>
-
-                <div class="question-text">
-                    Lifestyle, Study Routine & Daily Habits
-                </div>
-
+                <div class="question-number">Step 2 of 3</div>
+                <div class="question-text">Lifestyle, Study Routine & Daily Habits</div>
                 <p class="step-helper-text">
                     Tell us about your academics, sleep, physical activity, and general daily routine.
                 </p>
-
                 <div id="step2Questions" class="premium-question-list"></div>
             </div>
 
             <div class="step-navigation">
-                <button type="button" class="prev-step-btn" data-prev="1">
-                    Previous
-                </button>
-
-                <button type="button" class="next-step-btn" data-next="3">
-                    Next Step
-                </button>
+                <button type="button" class="prev-step-btn" data-prev="1">Previous</button>
+                <button type="button" class="next-step-btn" data-next="3">Next Step</button>
             </div>
         </div>
 
@@ -215,116 +160,36 @@
              STEP 3: MENTAL HEALTH + MUSIC
         ========================== -->
         <div class="assessment-step" id="step-3">
-
             <div class="question-card premium-card">
-                <div class="question-number">
-                    Step 3 of 3
-                </div>
-
-                <div class="question-text">
-                    Mental Health, Stress & Music Behaviour
-                </div>
-
+                <div class="question-number">Step 3 of 3</div>
+                <div class="question-text">Mental Health, Stress & Music Behaviour</div>
                 <p class="step-helper-text">
                     These responses help estimate stress patterns, emotional state, and supportive recommendations.
                 </p>
-
                 <div id="step3Questions" class="premium-question-list"></div>
             </div>
 
             <div class="step-navigation">
-                <button type="button" class="prev-step-btn" data-prev="2">
-                    Previous
-                </button>
-
-                <button
-                    class="submit-assessment"
-                    type="submit">
-                    Analyze My Mental Health
-                </button>
+                <button type="button" class="prev-step-btn" data-prev="2">Previous</button>
+                <button class="submit-assessment" type="submit" id="submitAssessmentBtn" data-redirect-url="{% url 'dashboard' %}">Analyze My Mental Health</button>
             </div>
         </div>
-
     </form>
 
-    <div
-        id="loader"
-        class="loader premium-loader">
+    <div id="loader" class="loader premium-loader">
         <i class="fa-solid fa-brain"></i>
         <span>Analyzing your responses...</span>
     </div>
 
-    <!-- =========================
-         RESULT CARD
-    ========================== -->
-    <div
-        id="resultCard"
-        class="result-card premium-result-card">
-
-        <h2>
-            Your Assessment Result
-        </h2>
-
-        <div class="result-grid">
-
-            <div class="result-box">
-                <h3>Stress Level</h3>
-                <div
-                    id="stressLevel"
-                    class="result-value">
-                    --
-                </div>
-            </div>
-
-            <div class="result-box">
-                <h3>Burnout Score</h3>
-                <div
-                    id="burnoutScore"
-                    class="result-value">
-                    --
-                </div>
-            </div>
-
-            <div class="result-box">
-                <h3>Wellness Score</h3>
-                <div
-                    id="wellnessScore"
-                    class="result-value">
-                    --
-                </div>
-            </div>
-
-            <div class="result-box">
-                <h3>Mental Health Status</h3>
-                <div
-                    id="mentalStatus"
-                    class="result-value">
-                    --
-                </div>
-            </div>
-
-        </div>
-
-        <div class="result-section">
-            <h3>Support Message</h3>
-            <p id="supportMessage">No summary yet.</p>
-        </div>
-
-        <div class="result-section">
-            <h3>Recommended Music</h3>
-            <ul id="musicList"></ul>
-        </div>
-
-        <div class="result-section">
-            <h3>Recommended Activities / Self Care</h3>
-            <ul id="activityList"></ul>
-        </div>
-
-    </div>
+    <!-- REDUNDANT RESULT CARD BLOCKS REMOVED FROM THIS SPACE TO ENABLE CLEAN REDIRECTS TO DASHBOARD -->
 
 </div>
 
-<script src="{% static 'js/assessment.js' %}"></script>
+<footer>
+    <p>© 2026 Calmify AI</p>
+    <p>Developed by Mohit Bhargav</p>
+</footer>
 
+<script src="{% static 'js/assessment.js' %}"></script>
 </body>
 </html>
